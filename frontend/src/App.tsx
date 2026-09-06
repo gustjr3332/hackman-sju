@@ -127,25 +127,33 @@ export default function App() {
   return (
     <>
       <header className="site-header">
-        <div className="site-header-top">
-          <div>
-            <h1>해커톤/공모전 플랫폼</h1>
-            <p className="tagline">대회를 만들고, 팀을 꾸리고, 실시간으로 점수를 확인하세요</p>
-          </div>
-          <ThemeToggle />
-        </div>
-        <div className="auth-status">
-          {username ? (
+        <div className="brand">
+          <span className="brand-mark" aria-hidden="true">
+            H
+          </span>
+          <span className="brand-word">HACKMAN</span>
+          {selected && (
             <>
+              <span className="crumb-sep" aria-hidden="true">
+                /
+              </span>
+              <span className="crumb">{selected.name}</span>
+            </>
+          )}
+        </div>
+        <div className="header-right">
+          <ThemeToggle />
+          {username && (
+            <div className="auth-status">
               <span>
-                {username}님 로그인됨
+                {username}
                 {isOrganizer && <span className="role-tag">운영자</span>}
               </span>
               <button type="button" onClick={handleLogout}>
                 로그아웃
               </button>
-            </>
-          ) : null}
+            </div>
+          )}
         </div>
       </header>
 
@@ -162,13 +170,19 @@ export default function App() {
           />
         ) : (
           <>
-            {isOrganizer && !showCreateForm && (
-              <div className="organizer-bar">
-                <button type="button" onClick={() => setShowCreateForm(true)}>
-                  + 새 대회 만들기
-                </button>
+            <div className="page-head">
+              <div>
+                <h1>대회</h1>
+                <p className="tagline">학과·동아리 해커톤을 만들고 실시간으로 운영합니다</p>
               </div>
-            )}
+              {isOrganizer && !showCreateForm && (
+                <div className="organizer-bar">
+                  <button type="button" onClick={() => setShowCreateForm(true)}>
+                    + 새 대회 만들기
+                  </button>
+                </div>
+              )}
+            </div>
             {isOrganizer && showCreateForm && (
               <ContestForm
                 onCreated={handleContestCreated}

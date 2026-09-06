@@ -24,8 +24,30 @@ export function SubmissionReviewPanel({ submission }: { submission: Submission }
 
   return (
     <div className="review-panel">
-      <button type="button" className="review-toggle" onClick={() => setOpen((v) => !v)}>
-        {open ? '심사 도구 닫기 ▲' : '심사 도구 열기 (데모 · 코드) ▼'}
+      <button
+        type="button"
+        className="review-toggle"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+      >
+        {open ? '심사 도구 닫기' : '심사 도구 열기 (데모 · 코드)'}
+        {/* 딩벳 문자 대신 SVG (DESIGN.md "아이콘 · 모션") */}
+        <svg
+          className={`chevron${open ? ' open' : ''}`}
+          width="14"
+          height="14"
+          viewBox="0 0 16 16"
+          fill="none"
+          aria-hidden="true"
+        >
+          <polyline
+            points="4,6 8,10 12,6"
+            stroke="currentColor"
+            strokeWidth="1.6"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
       </button>
       {open && (
         <div className="review-body">

@@ -50,6 +50,12 @@
   box-sizing: border-box;
 }
 
+/* 타입 스케일의 단일 레버 (DESIGN.md "타입 스케일"). 개별 크기는 전부 rem 으로 적어
+   이 한 값만 바꾸면 화면 전체가 같은 비율로 커지고 작아진다. */
+:root {
+  font-size: 19px;
+}
+
 :focus-visible {
   outline: 2px solid var(--signal);
   outline-offset: 2px;
@@ -65,23 +71,78 @@ body {
 
 /* ---------- header ---------- */
 
+/* 상단 바: 높이 68px, 로고 마크 + 워드마크 + 브레드크럼 (DESIGN.md "레이아웃") */
 .site-header {
-  padding: 40px 24px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  height: 68px;
+  padding: 0 24px;
   border-bottom: 1px solid var(--line);
 }
 
-.site-header-top {
+.brand {
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
 }
 
-.site-header h1 {
-  margin: 0;
+.brand-mark {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  border-radius: 6px;
+  background: var(--ink);
+  color: var(--paper);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-mono);
+  font-weight: 600;
+  font-size: 0.75rem;
+}
+
+.brand-word {
+  font-weight: 700;
+  font-size: 0.95rem;
+  letter-spacing: -0.02em;
+}
+
+.crumb-sep {
+  color: var(--muted);
+}
+
+.crumb {
+  color: var(--muted);
+  font-size: 0.82rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+/* 목록 화면 제목 블록 */
+.page-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.page-head h1 {
+  margin: 0 0 4px;
   font-size: 1.6rem;
   font-weight: 700;
-  letter-spacing: -0.01em;
+  letter-spacing: -0.02em;
 }
 
 .theme-toggle {
@@ -111,11 +172,10 @@ body {
 }
 
 .auth-status {
-  margin-top: 16px;
   display: flex;
   align-items: center;
   gap: 12px;
-  font-size: 0.85rem;
+  font-size: 0.82rem;
   color: var(--muted);
 }
 
@@ -183,11 +243,17 @@ body {
 .submission-form textarea {
   border: 1px solid var(--line);
   border-radius: 2px;
+  /* 탭 타깃 44px (DESIGN.md "컨트롤 규격") */
+  min-height: 44px;
   padding: 10px 12px;
   font-size: 0.95rem;
   font-family: var(--font-ui);
   background: var(--surface);
   color: var(--ink);
+}
+
+.auth-panel input:focus {
+  border-color: var(--ink);
 }
 
 .auth-panel button[type='submit'],
@@ -197,10 +263,32 @@ body {
   color: var(--paper);
   border: none;
   border-radius: 2px;
+  min-height: 44px;
   padding: 10px;
   cursor: pointer;
   font-family: var(--font-ui);
   font-weight: 500;
+}
+
+.auth-panel button[type='submit']:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* 입력 즉시 뜨는 안내 — 서버 오류(.form-error)와 달리 아직 요청을 보내지 않은 상태다. */
+.field-note {
+  margin: -4px 0 0;
+  font-size: 0.78rem;
+  color: var(--judging);
+}
+
+.auth-footnote {
+  margin: 4px 0 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+  font-size: 0.8rem;
+  line-height: 1.7;
+  color: var(--muted);
 }
 
 .form-error {
@@ -472,14 +560,67 @@ body {
 }
 
 .judge-card {
-  padding: 16px 4px;
   border-bottom: 1px solid var(--line);
 }
 
-.judge-card h4 {
-  margin: 0 0 2px;
+/* 팀 하나만 펼쳐 보는 접이식 행 (DESIGN.md "화면별 기준 · 심사하기") */
+.judge-card-head {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+  min-height: 44px;
+  padding: 14px 4px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  color: var(--ink);
+  font-family: var(--font-ui);
+}
+
+.judge-card-head:hover {
+  background: var(--paper-raised);
+}
+
+.judge-card-title {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+}
+
+.judge-team-name {
   font-size: 1rem;
   font-weight: 600;
+}
+
+.judge-card-scores {
+  display: flex;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.judge-score-chip {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.judge-card-body {
+  padding: 0 4px 18px;
+}
+
+.chevron {
+  flex-shrink: 0;
+  color: var(--muted);
+  transform: rotate(-90deg);
+  transition: transform 0.15s ease;
+}
+
+.chevron.open {
+  transform: rotate(0deg);
 }
 
 .score-rounds {
@@ -929,10 +1070,14 @@ body {
 }
 
 .review-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
   background: none;
   border: 1px solid var(--line);
   border-radius: 2px;
-  padding: 6px 12px;
+  padding: 6px 14px;
   cursor: pointer;
   font-family: var(--font-ui);
   font-size: 0.82rem;
@@ -1222,6 +1367,8 @@ body {
   cursor: pointer;
 }
 
+/* 시상식 무대는 프로젝터 화면이라 테마와 무관하게 어두운 배경으로 고정한다
+   (DESIGN.md "색상" 마지막 항목). 그래서 여기서만 토큰 대신 값을 직접 쓴다. */
 .ceremony-overlay {
   position: fixed;
   inset: 0;
@@ -1231,10 +1378,11 @@ body {
   align-items: center;
   justify-content: center;
   gap: 32px;
-  background: var(--ink);
-  color: var(--paper);
+  background: #14181c;
+  color: #f3f4f1;
   text-align: center;
   padding: 24px;
+  overflow: hidden;
 }
 
 .ceremony-close {
@@ -1243,10 +1391,123 @@ body {
   right: 24px;
   background: none;
   border: none;
-  color: var(--paper);
+  color: #f3f4f1;
   font-size: 2rem;
   line-height: 1;
   cursor: pointer;
+  z-index: 2;
+}
+
+/* ---------- 시상식 축하 연출 ---------- */
+
+.ceremony-celebration {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.confetti-piece {
+  position: absolute;
+  top: -30px;
+  animation-timing-function: cubic-bezier(0.25, 0.7, 0.4, 1);
+  animation-fill-mode: forwards;
+}
+
+.confetti-piece.drift-1 {
+  animation-name: confetti-fall-1;
+}
+.confetti-piece.drift-2 {
+  animation-name: confetti-fall-2;
+}
+.confetti-piece.drift-3 {
+  animation-name: confetti-fall-3;
+}
+.confetti-piece.drift-4 {
+  animation-name: confetti-fall-4;
+}
+
+@keyframes confetti-fall-1 {
+  0% {
+    transform: translate3d(0, 0, 0) rotate(0deg);
+    opacity: 0;
+  }
+  12% {
+    opacity: 1;
+  }
+  100% {
+    transform: translate3d(-160px, 105vh, 0) rotate(680deg);
+    opacity: 0;
+  }
+}
+
+@keyframes confetti-fall-2 {
+  0% {
+    transform: translate3d(0, 0, 0) rotate(0deg);
+    opacity: 0;
+  }
+  12% {
+    opacity: 1;
+  }
+  100% {
+    transform: translate3d(-55px, 105vh, 0) rotate(-540deg);
+    opacity: 0;
+  }
+}
+
+@keyframes confetti-fall-3 {
+  0% {
+    transform: translate3d(0, 0, 0) rotate(0deg);
+    opacity: 0;
+  }
+  12% {
+    opacity: 1;
+  }
+  100% {
+    transform: translate3d(60px, 105vh, 0) rotate(760deg);
+    opacity: 0;
+  }
+}
+
+@keyframes confetti-fall-4 {
+  0% {
+    transform: translate3d(0, 0, 0) rotate(0deg);
+    opacity: 0;
+  }
+  12% {
+    opacity: 1;
+  }
+  100% {
+    transform: translate3d(175px, 105vh, 0) rotate(-620deg);
+    opacity: 0;
+  }
+}
+
+.ceremony-spark {
+  position: absolute;
+  left: 50%;
+  top: 42%;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+  animation: ceremony-burst 1.6s cubic-bezier(0.2, 0.7, 0.3, 1) forwards;
+}
+
+@keyframes ceremony-burst {
+  from {
+    transform: scale(0.15);
+    opacity: 0.85;
+  }
+  to {
+    transform: scale(2.8);
+    opacity: 0;
+  }
+}
+
+/* 움직임을 줄이도록 설정한 사용자에게는 연출을 걷어낸다. */
+@media (prefers-reduced-motion: reduce) {
+  .ceremony-celebration {
+    display: none;
+  }
 }
 
 .ceremony-body {
@@ -1256,17 +1517,27 @@ body {
   gap: 16px;
   min-height: 8em;
   justify-content: center;
+  position: relative;
+  z-index: 1;
 }
 
 .ceremony-hint {
-  color: var(--muted);
+  color: #9aa0a6;
   font-size: 1.1rem;
+}
+
+.ceremony-award-rank {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  letter-spacing: 0.16em;
+  color: #3fa372;
 }
 
 .ceremony-award-title {
   font-size: clamp(2rem, 6vw, 4rem);
   font-weight: 700;
-  color: var(--judging);
+  color: #e08148;
   margin: 0;
 }
 
@@ -1274,6 +1545,13 @@ body {
   font-size: clamp(1.5rem, 5vw, 3rem);
   font-weight: 700;
   margin: 0;
+}
+
+.ceremony-team-score {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: clamp(1.1rem, 3vw, 1.8rem);
+  color: #6c93c7;
 }
 
 .ceremony-award-title.reveal,
@@ -1296,18 +1574,21 @@ body {
   display: flex;
   align-items: center;
   gap: 16px;
+  position: relative;
+  z-index: 1;
 }
 
 .ceremony-progress {
   font-family: var(--font-mono);
-  color: var(--muted);
+  color: #9aa0a6;
 }
 
 .ceremony-controls button {
-  background: var(--paper);
-  color: var(--ink);
+  background: #f3f4f1;
+  color: #14181c;
   border: none;
   border-radius: 2px;
+  min-height: 48px;
   padding: 12px 28px;
   font-family: var(--font-ui);
   font-weight: 600;

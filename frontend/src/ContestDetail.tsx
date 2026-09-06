@@ -477,36 +477,94 @@ interface JudgePanelProps {
 
 function JudgePanel({ teams, myScores, disabled, onScored }: JudgePanelProps) {
   const judgeable = teams.filter((team) => team.submission);
+  // 팀이 늘어나면 폼이 한 화면을 넘기므로 한 번에 한 팀만 펼친다.
+  // 아직 아무것도 고르지 않았으면 첫 팀을 연다. 팀 목록은 폴링으로 나중에 도착하므로
+  // useState 초기값이 아니라 렌더 시점에 정한다.
+  const [openTeamId, setOpenTeamId] = useState<number | null>(null);
+  const [closedAll, setClosedAll] = useState(false);
+
   if (judgeable.length === 0) {
     return <p className="empty-hint">채점할 제출물이 아직 없습니다.</p>;
   }
+  const openId = openTeamId ?? (closedAll ? null : judgeable[0].id);
   return (
     <div className="judge-panel">
-      {judgeable.map((team) => (
-        <article key={team.id} className="judge-card">
-          <h4>{team.name}</h4>
-          <p className="submission-summary">{team.submission!.title}</p>
-          <SubmissionReviewPanel submission={team.submission!} />
-          <div className="score-rounds">
-            {ROUNDS.map((r) => {
-              const existing = myScores.find(
-                (s) => s.submission === team.submission!.id && s.round === r
-              );
-              return (
-                <ScoreForm
-                  key={`${r}-${existing?.id ?? 'new'}`}
-                  round={r}
-                  submissionId={team.submission!.id}
-                  existing={existing}
-                  disabled={disabled}
-                  onScored={onScored}
-                />
-              );
-            })}
-          </div>
-        </article>
-      ))}
+      {judgeable.map((team) => {
+        const submission = team.submission!;
+        const scoreOf = (r: ScoreRound) =>
+          myScores.find((s) => s.submission === submission.id && s.round === r);
+        const open = openId === team.id;
+        return (
+          <article key={team.id} className="judge-card">
+            <button
+              type="button"
+              className="judge-card-head"
+              aria-expanded={open}
+              onClick={() => {
+                setOpenTeamId(open ? null : team.id);
+                setClosedAll(open);
+              }}
+            >
+              <span className="judge-card-title">
+                <span className="judge-team-name">{team.name}</span>
+                <span className="submission-summary">{submission.title}</span>
+              </span>
+              <span className="judge-card-scores">
+                {ROUNDS.map((r) => (
+                  <span key={r} className="judge-score-chip">
+                    {ROUND_LABEL[r]} {scoreOf(r)?.value ?? '–'}
+                  </span>
+                ))}
+              </span>
+              <Chevron open={open} />
+            </button>
+
+            {open && (
+              <div className="judge-card-body">
+                <SubmissionReviewPanel submission={submission} />
+                <div className="score-rounds">
+                  {ROUNDS.map((r) => {
+                    const existing = scoreOf(r);
+                    return (
+                      <ScoreForm
+                        key={`${r}-${existing?.id ?? 'new'}`}
+                        round={r}
+                        submissionId={submission.id}
+                        existing={existing}
+                        disabled={disabled}
+                        onScored={onScored}
+                      />
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </article>
+        );
+      })}
     </div>
+  );
+}
+
+/** 접힘/펼침 표시. 딩벳 문자 대신 SVG 로 그린다 (DESIGN.md "아이콘 · 모션"). */
+function Chevron({ open }: { open: boolean }) {
+  return (
+    <svg
+      className={`chevron${open ? ' open' : ''}`}
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="none"
+      aria-hidden="true"
+    >
+      <polyline
+        points="4,6 8,10 12,6"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
   );
 }
 

@@ -115,6 +115,53 @@ export function AwardCeremony({ contestSlug, finalScoreboard }: AwardCeremonyPro
   );
 }
 
+/** 컨페티 색은 팔레트만 쓴다 (DESIGN.md "아이콘 · 모션"). 무대가 어두운 배경 고정이라
+ *  라이트/다크 토큰 대신 다크 액센트 값을 직접 쓴다. */
+const CONFETTI_COLORS = ['#3fa372', '#e08148', '#6c93c7', '#f3f4f1'];
+const CONFETTI_COUNT = 34;
+
+/** 인덱스로만 결정되는 의사 난수 — 리렌더마다 조각이 튀지 않도록 Math.random 을 피한다. */
+function pseudoRandom(index: number, seed: number) {
+  const x = Math.sin((index + 1) * seed) * 10000;
+  return x - Math.floor(x);
+}
+
+const CONFETTI_PIECES = Array.from({ length: CONFETTI_COUNT }, (_, i) => ({
+  drift: (i % 4) + 1,
+  left: `${(pseudoRandom(i, 12.9898) * 96 + 2).toFixed(1)}%`,
+  width: `${5 + Math.round(pseudoRandom(i, 45.164) * 4)}px`,
+  height: `${9 + Math.round(pseudoRandom(i, 94.673) * 9)}px`,
+  background: CONFETTI_COLORS[i % CONFETTI_COLORS.length],
+  animationDelay: `${(pseudoRandom(i, 23.11) * 1.1).toFixed(2)}s`,
+  animationDuration: `${(1.7 + pseudoRandom(i, 51.7) * 1.5).toFixed(2)}s`,
+}));
+
+/** 수상팀이 공개되는 순간의 축하 연출. 마운트되는 순간부터 한 번만 재생된다. */
+function Celebration() {
+  return (
+    <div className="ceremony-celebration" aria-hidden="true">
+      {CONFETTI_PIECES.map((piece, i) => {
+        const { drift, ...style } = piece;
+        return <span key={i} className={`confetti-piece drift-${drift}`} style={style} />;
+      })}
+      <span
+        className="ceremony-spark"
+        style={{ width: 140, height: 140, margin: '-70px 0 0 -70px', color: '#3fa372' }}
+      />
+      <span
+        className="ceremony-spark"
+        style={{
+          width: 210,
+          height: 210,
+          margin: '-105px 0 0 -105px',
+          color: '#6c93c7',
+          animationDelay: '0.2s',
+        }}
+      />
+    </div>
+  );
+}
+
 interface CeremonyOverlayProps {
   awards: Award[];
   finalScoreboard: ScoreboardEntry[];
@@ -148,11 +195,22 @@ function CeremonyOverlay({ awards, finalScoreboard, onClose }: CeremonyOverlayPr
 
   return (
     <div className="ceremony-overlay" role="dialog" aria-modal="true" aria-label="시상식">
+      {/* 수상팀이 공개될 때만, 그 순간 새로 마운트되면서 애니메이션이 처음부터 재생된다.
+          key 에 stepIndex 를 넣어 다음 시상에서도 다시 터지게 한다. */}
+      {stage === 'team' && <Celebration key={`celebration-${stepIndex}`} />}
       <button type="button" className="ceremony-close" onClick={onClose} aria-label="시상식 닫기">
-        ×
+        <svg width="22" height="22" viewBox="0 0 22 22" fill="none" aria-hidden="true">
+          <line x1="5" y1="5" x2="17" y2="17" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+          <line x1="17" y1="5" x2="5" y2="17" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+        </svg>
       </button>
       <div className="ceremony-body">
         {stage === 'waiting' && <p className="ceremony-hint">다음 수상자를 호명할 준비가 되면 진행하세요</p>}
+        {stage !== 'waiting' && current && (
+          <p key={`rank-${stepIndex}`} className="ceremony-award-rank">
+            {current.rank}위
+          </p>
+        )}
         {stage !== 'waiting' && (
           <p key={`title-${stepIndex}`} className="ceremony-award-title reveal">
             {current?.title}
@@ -160,7 +218,12 @@ function CeremonyOverlay({ awards, finalScoreboard, onClose }: CeremonyOverlayPr
         )}
         {stage === 'team' && (
           <p key={`team-${stepIndex}`} className="ceremony-team-name reveal">
-            🎉 {winner ? winner.team_name : '순위 정보 없음'} 🎉
+            {winner ? winner.team_name : '순위 정보 없음'}
+          </p>
+        )}
+        {stage === 'team' && winner?.average_score != null && (
+          <p key={`score-${stepIndex}`} className="ceremony-team-score reveal">
+            {Number(winner.average_score).toFixed(2)}
           </p>
         )}
       </div>
