@@ -12,7 +12,7 @@ from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APITestCase
 
-from .models import Award, Contest, Judge, Score, Submission, Team
+from .models import Award, Contest, Judge, Participant, Score, Submission, Team
 
 User = get_user_model()
 
@@ -152,6 +152,72 @@ class ContestApiTests(ApiTestCase):
         })
         self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
         self.assertFalse(Submission.objects.filter(team=team).exists())
+
+
+class ContestDeleteTests(ApiTestCase):
+    """대회 삭제는 운영자만, 그리고 딸린 데이터를 전부 함께 지운다.
+
+    되돌릴 수 없는 유일한 파괴적 동작이라, 권한 경계와 연쇄 삭제 범위를 테스트로 못박는다.
+    """
+
+    def setUp(self):
+        self.organizer = User.objects.create_user('organizer', password='pw12345678', is_staff=True)
+        self.participant = User.objects.create_user('participant', password='pw12345678')
+        self.judge_user = User.objects.create_user('judge', password='pw12345678')
+        self.contest = make_contest()
+
+        self.team = Team.objects.create(contest=self.contest, name='팀 A')
+        self.team.participants.create(user=self.participant)
+        self.submission = Submission.objects.create(team=self.team, title='제출물')
+        self.judge = Judge.objects.create(contest=self.contest, user=self.judge_user)
+        Score.objects.create(
+            submission=self.submission, judge=self.judge, round='preliminary', value=Decimal('80'),
+        )
+        Award.objects.create(contest=self.contest, rank=1, title='대상')
+
+    def test_organizer_delete_cascades_to_every_child(self):
+        self.client.force_authenticate(self.organizer)
+        res = self.client.delete(f'/api/contests/{self.contest.slug}/')
+
+        self.assertEqual(res.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(Contest.objects.filter(slug=self.contest.slug).exists())
+        # 팀·참가자·제출물·심사위원·점수·시상이 남으면 다음 대회 집계에 섞여 들어간다.
+        self.assertFalse(Team.objects.exists())
+        self.assertFalse(Participant.objects.exists())
+        self.assertFalse(Submission.objects.exists())
+        self.assertFalse(Judge.objects.exists())
+        self.assertFalse(Score.objects.exists())
+        self.assertFalse(Award.objects.exists())
+        # 사용자 계정 자체는 대회에 딸린 데이터가 아니므로 살아남아야 한다.
+        self.assertTrue(User.objects.filter(username='participant').exists())
+
+    def test_participant_cannot_delete_contest(self):
+        self.client.force_authenticate(self.participant)
+        res = self.client.delete(f'/api/contests/{self.contest.slug}/')
+        self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertTrue(Contest.objects.filter(slug=self.contest.slug).exists())
+
+    def test_judge_cannot_delete_contest(self):
+        self.client.force_authenticate(self.judge_user)
+        res = self.client.delete(f'/api/contests/{self.contest.slug}/')
+        self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertTrue(Contest.objects.filter(slug=self.contest.slug).exists())
+
+    def test_anonymous_cannot_delete_contest(self):
+        res = self.client.delete(f'/api/contests/{self.contest.slug}/')
+        self.assertEqual(res.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertTrue(Contest.objects.filter(slug=self.contest.slug).exists())
+
+    def test_delete_leaves_other_contests_untouched(self):
+        other = make_contest(slug='hack-2027', name='2027 해커톤')
+        other_team = Team.objects.create(contest=other, name='다른 팀')
+
+        self.client.force_authenticate(self.organizer)
+        res = self.client.delete(f'/api/contests/{self.contest.slug}/')
+
+        self.assertEqual(res.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertTrue(Contest.objects.filter(slug=other.slug).exists())
+        self.assertTrue(Team.objects.filter(pk=other_team.pk).exists())
 
 
 class ContestStatusTransitionTests(ApiTestCase):

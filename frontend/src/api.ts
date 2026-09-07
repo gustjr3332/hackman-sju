@@ -206,6 +206,14 @@ export function updateContest(
 }
 
 /**
+ * 대회와 딸린 데이터(팀·참가자·제출물·심사위원·점수·시상)를 전부 지운다. 되돌릴 수 없으므로
+ * 호출부에서 반드시 확인 절차를 거친 뒤에 부른다.
+ */
+export function deleteContest(slug: string): Promise<void> {
+  return request(`/contests/${slug}/`, { method: 'DELETE' });
+}
+
+/**
  * 5초마다 불리는 유일한 집계 엔드포인트라 조건부 GET 을 쓴다. 순위가 그대로면 서버가 304 만
  * 돌려주므로 본문 전송·파싱·재렌더가 전부 없어진다.
  */

@@ -2,6 +2,7 @@ import { Fragment, useCallback, useEffect, useState } from 'react';
 import {
   addJudge,
   createTeam,
+  deleteContest,
   fetchContest,
   fetchJudges,
   fetchMyScores,
@@ -59,6 +60,7 @@ interface ContestDetailProps {
   isOrganizer: boolean;
   onBack: () => void;
   onContestUpdated: (contest: Contest) => void;
+  onDeleted: (slug: string) => void;
 }
 
 export function ContestDetail({
@@ -67,6 +69,7 @@ export function ContestDetail({
   isOrganizer,
   onBack,
   onContestUpdated,
+  onDeleted,
 }: ContestDetailProps) {
   const [teams, setTeams] = useState<Team[]>([]);
   const [scoreboard, setScoreboard] = useState<ScoreboardEntry[]>([]);
@@ -313,7 +316,99 @@ export function ContestDetail({
           finalScoreboard={scoreboard.filter((entry) => entry.round === 'final')}
         />
       )}
+
+      {isOrganizer && <DangerZone contest={contest} onDeleted={onDeleted} />}
     </section>
+  );
+}
+
+// ---------- danger zone (organizer only) ----------
+
+interface DangerZoneProps {
+  contest: Contest;
+  onDeleted: (slug: string) => void;
+}
+
+/**
+ * 대회 삭제. 되돌릴 수 없고 팀·제출물·점수·시상까지 전부 함께 사라지므로, 버튼 한 번으로는
+ * 실행되지 않는다 — 대회 이름을 정확히 다시 입력해야 삭제 버튼이 열린다. 브라우저 `confirm`
+ * 대신 폼을 쓰는 이유는 모달 대화상자가 폴링 중인 화면을 통째로 멈추기 때문이다.
+ */
+function DangerZone({ contest, onDeleted }: DangerZoneProps) {
+  const [open, setOpen] = useState(false);
+  const [typedName, setTypedName] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  const confirmed = typedName.trim() === contest.name;
+
+  function close() {
+    setOpen(false);
+    setTypedName('');
+    setError('');
+  }
+
+  async function handleDelete(e: React.FormEvent) {
+    e.preventDefault();
+    if (!confirmed || busy) return;
+    setError('');
+    setBusy(true);
+    try {
+      await deleteContest(contest.slug);
+      // 목록 화면으로 돌아가는 일은 App 이 한다 — 이 컴포넌트는 이미 사라진 대회를 그리게 된다.
+      onDeleted(contest.slug);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '대회 삭제에 실패했습니다');
+      setBusy(false);
+    }
+  }
+
+  if (!open) {
+    return (
+      <div className="danger-zone">
+        <h3 className="section-heading danger">위험 구역</h3>
+        <p className="danger-note">
+          테스트용으로 만든 대회를 정리할 때 씁니다. 삭제하면 되돌릴 수 없습니다.
+        </p>
+        <button type="button" className="danger-btn" onClick={() => setOpen(true)}>
+          대회 삭제
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="danger-zone open">
+      <h3 className="section-heading danger">대회 삭제</h3>
+      <p className="danger-note">
+        <strong>{contest.name}</strong> 과(와) 여기 딸린 팀 {contest.team_count}개, 그리고 참가자
+        명단·제출물·심사위원·점수·시상 기록이 <strong>전부 함께 삭제됩니다.</strong> 되돌릴 수
+        없습니다.
+      </p>
+      <form className="danger-form" onSubmit={handleDelete}>
+        <label htmlFor="delete-confirm">
+          계속하려면 대회 이름 <code>{contest.name}</code> 을(를) 그대로 입력하세요.
+        </label>
+        <input
+          id="delete-confirm"
+          type="text"
+          value={typedName}
+          onChange={(e) => setTypedName(e.target.value)}
+          placeholder={contest.name}
+          autoComplete="off"
+          autoFocus
+        />
+        <div className="danger-actions">
+          <button type="submit" className="danger-btn" disabled={!confirmed || busy}>
+            {busy ? '삭제 중…' : '영구 삭제'}
+          </button>
+          <button type="button" onClick={close} disabled={busy}>
+            취소
+          </button>
+        </div>
+      </form>
+      {error && <p className="form-error">{error}</p>}
+    </div>
   );
 }
 

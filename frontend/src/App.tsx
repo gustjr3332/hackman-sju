@@ -153,6 +153,17 @@ export default function App() {
     loadContests();
   }
 
+  // 삭제된 대회는 상세 화면이 그릴 것이 없으므로 목록으로 되돌린다. 목록에서도 먼저 지워
+  // 두는 이유는, 서버 재조회를 기다리는 동안 방금 지운 대회가 카드로 남아 보이기 때문이다.
+  const handleContestDeleted = useCallback(
+    (slug: string) => {
+      setSelectedSlug(null);
+      setContests((prev) => prev.filter((c) => c.slug !== slug));
+      loadContests();
+    },
+    [loadContests]
+  );
+
   // 좌상단 로고를 언제든 눌러 대회 목록(초기 화면)으로 돌아간다.
   function handleGoHome() {
     setSelectedSlug(null);
@@ -219,6 +230,7 @@ export default function App() {
             isOrganizer={isOrganizer}
             onBack={() => setSelectedSlug(null)}
             onContestUpdated={handleContestUpdated}
+            onDeleted={handleContestDeleted}
           />
         ) : (
           <>

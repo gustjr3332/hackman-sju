@@ -1635,3 +1635,81 @@ body {
   font-size: 1rem;
   cursor: pointer;
 }
+
+/* ---------- 위험 구역 (운영자 전용 대회 삭제) ---------- */
+
+/* 다른 섹션과 시각적으로 분리한다 — 실수로 눌러도 되는 영역이 아니라는 신호. */
+.danger-zone {
+  margin-top: 40px;
+  padding: 16px;
+  border: 1px solid var(--danger);
+  border-radius: 4px;
+}
+
+.danger-zone.open {
+  background: color-mix(in srgb, var(--danger) 6%, var(--surface));
+}
+
+.danger-zone .section-heading.danger {
+  border-left-color: var(--danger);
+  color: var(--danger);
+}
+
+.danger-note {
+  margin: 0 0 12px;
+  font-size: 0.85rem;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.danger-note strong {
+  color: var(--ink);
+}
+
+.danger-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.danger-form label {
+  font-size: 0.85rem;
+}
+
+.danger-form code {
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  color: var(--danger);
+}
+
+.danger-form input {
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+}
+
+.danger-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.danger-btn {
+  background: var(--danger);
+  color: #fff;
+  border: none;
+  border-radius: 2px;
+  padding: 10px 18px;
+  font-family: var(--font-ui);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* 이름을 정확히 입력하기 전에는 눌리지 않는다. */
+.danger-btn:disabled {
+  background: var(--line);
+  color: var(--muted);
+  cursor: not-allowed;
+}
