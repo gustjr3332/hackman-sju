@@ -15,6 +15,7 @@ from datetime import timedelta
 from pathlib import Path
 
 import dj_database_url
+from corsheaders.defaults import default_headers
 from dotenv import load_dotenv
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -71,9 +72,13 @@ CORS_ALLOWED_ORIGINS = [
     ).split(',') if o
 ]
 
-# 스코어보드가 조건부 요청(If-None-Match → 304)을 쓰려면 브라우저가 ETag 를 읽을 수 있어야
-# 한다. CORS 응답은 기본적으로 안전 목록 헤더만 노출되므로 명시한다.
+# 스코어보드가 조건부 요청(If-None-Match → 304)을 쓰려면 CORS 양쪽을 다 열어야 한다.
+# - 응답의 ETag 를 자바스크립트가 읽을 수 있어야 하고(기본은 안전 목록 헤더만 노출),
+# - 요청의 If-None-Match 가 프리플라이트에서 허용돼야 한다. django-cors-headers 의 기본
+#   허용 목록에는 If-None-Match 가 없어서, 빼먹으면 프리플라이트가 통과해도 브라우저가
+#   본 요청 자체를 보내지 않는다(서버 로그에는 OPTIONS 만 남아 원인이 잘 안 보인다).
 CORS_EXPOSE_HEADERS = ['ETag']
+CORS_ALLOW_HEADERS = (*default_headers, 'if-none-match')
 
 ROOT_URLCONF = 'config.urls'
 

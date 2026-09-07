@@ -908,3 +908,44 @@ class GithubProxyTests(ApiTestCase):
             res = self.get('repo', repo=self.repo)
         self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)
         self.assertEqual(res.data['kind'], 'not-found')
+
+
+class ScoreboardCorsTests(ApiTestCase):
+    """조건부 폴링은 CORS 양쪽이 다 열려 있어야 브라우저에서 동작한다.
+
+    이 두 헤더가 빠지면 서버 테스트는 전부 통과하는데 브라우저에서만 조용히 멈춘다
+    (서버 로그에는 OPTIONS 만 남는다). 그래서 설정 자체를 테스트로 고정한다.
+    """
+
+    ORIGIN = 'https://hackman-sju.vercel.app'
+
+    def setUp(self):
+        self.contest = make_contest()
+        self.url = f'/api/contests/{self.contest.slug}/scoreboard/'
+
+    def test_preflight_allows_if_none_match(self):
+        with self.settings(CORS_ALLOWED_ORIGINS=[self.ORIGIN]):
+            res = self.client.options(
+                self.url,
+                HTTP_ORIGIN=self.ORIGIN,
+                HTTP_ACCESS_CONTROL_REQUEST_METHOD='GET',
+                HTTP_ACCESS_CONTROL_REQUEST_HEADERS='if-none-match',
+            )
+        allowed = res.headers.get('access-control-allow-headers', '').lower()
+        self.assertIn('if-none-match', allowed)
+
+    def test_etag_is_exposed_to_javascript(self):
+        with self.settings(CORS_ALLOWED_ORIGINS=[self.ORIGIN]):
+            res = self.client.get(self.url, HTTP_ORIGIN=self.ORIGIN)
+        exposed = res.headers.get('access-control-expose-headers', '').lower()
+        self.assertIn('etag', exposed)
+
+    def test_304_still_carries_the_allow_origin_header(self):
+        # CORS 헤더가 없는 304 는 브라우저가 네트워크 오류로 처리해 폴링이 끊긴다.
+        with self.settings(CORS_ALLOWED_ORIGINS=[self.ORIGIN]):
+            first = self.client.get(self.url, HTTP_ORIGIN=self.ORIGIN)
+            second = self.client.get(
+                self.url, HTTP_ORIGIN=self.ORIGIN, HTTP_IF_NONE_MATCH=first['ETag'],
+            )
+        self.assertEqual(second.status_code, status.HTTP_304_NOT_MODIFIED)
+        self.assertEqual(second.headers.get('access-control-allow-origin'), self.ORIGIN)
