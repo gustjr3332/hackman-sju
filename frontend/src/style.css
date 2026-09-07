@@ -104,9 +104,22 @@ body {
   font-size: 0.75rem;
 }
 
+.brand-home {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+}
+
 .brand-word {
   font-weight: 700;
-  font-size: 0.95rem;
+  /* 기준 0.95rem 대비 20% 확대 */
+  font-size: 1.14rem;
   letter-spacing: -0.02em;
 }
 

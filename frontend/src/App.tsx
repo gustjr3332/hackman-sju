@@ -153,14 +153,27 @@ export default function App() {
     loadContests();
   }
 
+  // 좌상단 로고를 언제든 눌러 대회 목록(초기 화면)으로 돌아간다.
+  function handleGoHome() {
+    setSelectedSlug(null);
+    setShowCreateForm(false);
+  }
+
   return (
     <>
       <header className="site-header">
         <div className="brand">
-          <span className="brand-mark" aria-hidden="true">
-            H
-          </span>
-          <span className="brand-word">HACKMAN</span>
+          <button
+            type="button"
+            className="brand-home"
+            onClick={handleGoHome}
+            aria-label="대회 목록으로 이동"
+          >
+            <span className="brand-mark" aria-hidden="true">
+              H
+            </span>
+            <span className="brand-word">HACKMAN</span>
+          </button>
           {selected && (
             <>
               <span className="crumb-sep" aria-hidden="true">
