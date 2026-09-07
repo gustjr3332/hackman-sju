@@ -71,6 +71,10 @@ CORS_ALLOWED_ORIGINS = [
     ).split(',') if o
 ]
 
+# 스코어보드가 조건부 요청(If-None-Match → 304)을 쓰려면 브라우저가 ETag 를 읽을 수 있어야
+# 한다. CORS 응답은 기본적으로 안전 목록 헤더만 노출되므로 명시한다.
+CORS_EXPOSE_HEADERS = ['ETag']
+
 ROOT_URLCONF = 'config.urls'
 
 TEMPLATES = [
@@ -108,6 +112,34 @@ else:
             'PORT': os.getenv('POSTGRES_PORT', '5432'),
         }
     }
+
+
+# Cache
+# https://docs.djangoproject.com/en/6.1/topics/cache/
+#
+# 프로세스 메모리 캐시. 스코어보드 집계(5초 폴링 × 접속자 수)와 GitHub 프록시 응답을 담는
+# 용도라 Redis 를 따로 붙이지 않는다 — Render 는 gunicorn 워커 1개로 돌리므로 프로세스가
+# 하나뿐이고, 캐시가 비어도 원본을 다시 계산하면 그만인 데이터만 넣는다. 워커를 여러 개로
+# 늘리면 워커마다 캐시가 따로 생겨 무효화가 자기 워커에만 걸린다(최대 TTL 만큼 지연).
+
+CACHES = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+        'LOCATION': 'hackman-local',
+    }
+}
+
+# 스코어보드 집계 캐시 수명(초). 점수·팀·제출물이 바뀌면 즉시 무효화되므로, 이 값은
+# "아무도 쓰지 않는 동안 같은 집계를 몇 초까지 재사용할지"만 정한다.
+SCOREBOARD_CACHE_SECONDS = int(os.getenv('SCOREBOARD_CACHE_SECONDS', '3'))
+
+# GitHub 심사 도구 프록시.
+# 토큰이 없으면 비인증(시간당 60회)으로 동작하고, 있으면 시간당 5000회로 올라간다.
+# public_repo 조차 필요 없는 읽기 전용 fine-grained 토큰이면 충분하다.
+GITHUB_TOKEN = os.getenv('GITHUB_TOKEN', '')
+# 저장소 트리·파일은 심사 중에 거의 바뀌지 않고 같은 저장소를 심사위원 여러 명이 반복해서
+# 연다. 캐시 적중이 rate limit 을 지키는 주된 수단이다.
+GITHUB_CACHE_SECONDS = int(os.getenv('GITHUB_CACHE_SECONDS', '1800'))
 
 
 # Password validation

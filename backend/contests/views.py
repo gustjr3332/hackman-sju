@@ -1,3 +1,8 @@
+import hashlib
+import json
+
+from django.conf import settings
+from django.core.cache import cache
 from django.db import IntegrityError, transaction
 from django.db.models import Avg, BooleanField, Case, Count, Exists, OuterRef, Prefetch, Value, When
 from django.utils import timezone
@@ -38,6 +43,24 @@ def ensure_contest_status(contest, allowed, message):
     if contest.status not in allowed:
         label = contest.get_status_display()
         raise PermissionDenied(f'{message} (현재 상태: {label})')
+
+
+def scoreboard_cache_key(contest_slug, is_privileged):
+    # 결선 라운드가 응답에 들어가는지가 요청자 권한에 따라 다르므로 키를 나눈다. 하나로
+    # 합치면 캐시가 비공개 순위를 관람객에게 그대로 돌려준다.
+    return f'scoreboard:{contest_slug}:{"judge" if is_privileged else "public"}'
+
+
+def invalidate_scoreboard(contest_slug):
+    """점수·팀·제출물이 바뀌면 캐시된 스코어보드를 버린다.
+
+    캐시는 5초 폴링이 접속자 수만큼 겹칠 때 같은 집계를 반복하지 않으려는 것이지, 갱신을
+    늦추려는 게 아니다. 쓰기 직후 비워야 다음 폴링이 바로 새 순위를 본다.
+    """
+    cache.delete_many([
+        scoreboard_cache_key(contest_slug, True),
+        scoreboard_cache_key(contest_slug, False),
+    ])
 
 
 class RegisterView(generics.CreateAPIView):
@@ -83,6 +106,10 @@ class ContestViewSet(viewsets.ModelViewSet):
         hidden from the public until the organizer reveals it at the awards ceremony —
         only staff and judges assigned to this contest receive those entries. Everyone
         still sees ``preliminary`` live, same as before.
+
+        Every viewer polls this endpoint every 5 seconds, so the aggregate is cached for
+        a few seconds (invalidated on any score/team/submission write) and tagged with an
+        ETag — an unchanged board answers ``304`` with no body.
         """
         contest = self.get_object()
         user = request.user
@@ -91,6 +118,28 @@ class ContestViewSet(viewsets.ModelViewSet):
             and user.is_authenticated
             and (user.is_staff or Judge.objects.filter(contest=contest, user=user).exists())
         )
+
+        cache_key = scoreboard_cache_key(contest.slug, is_privileged)
+        cached = cache.get(cache_key)
+        if cached is None:
+            data = self._build_scoreboard(contest, is_privileged)
+            # ETag 는 직렬화 결과 자체의 해시다. 순위가 그대로면 같은 값이 나오므로 폴링이
+            # 반복돼도 본문을 다시 내려보내지 않는다.
+            digest = hashlib.md5(
+                json.dumps(data, sort_keys=True, ensure_ascii=False).encode('utf-8')
+            ).hexdigest()
+            cached = {'data': data, 'etag': f'"{digest}"'}
+            cache.set(cache_key, cached, settings.SCOREBOARD_CACHE_SECONDS)
+
+        # no-cache 는 "저장하지 마라"가 아니라 "쓰기 전에 반드시 재검증하라"는 뜻이다.
+        # 브라우저가 임의로 오래된 순위를 그대로 보여주는 일을 막는다.
+        headers = {'ETag': cached['etag'], 'Cache-Control': 'no-cache'}
+        if request.headers.get('If-None-Match') == cached['etag']:
+            return Response(status=status.HTTP_304_NOT_MODIFIED, headers=headers)
+        return Response(cached['data'], headers=headers)
+
+    def _build_scoreboard(self, contest, is_privileged):
+        """Aggregate + rank every team, returning serialized (JSON-safe) entries."""
         teams = list(contest.teams.select_related('submission'))
         aggregates = (
             Score.objects.filter(submission__team__contest=contest)
@@ -136,8 +185,8 @@ class ContestViewSet(viewsets.ModelViewSet):
             entries.extend(scored)
             entries.extend(unscored)
 
-        serializer = ScoreboardEntrySerializer(entries, many=True)
-        return Response(serializer.data)
+        # 캐시에 넣고 해시할 수 있도록 ReturnList 가 아닌 순수 dict 리스트로 만든다.
+        return [dict(entry) for entry in ScoreboardEntrySerializer(entries, many=True).data]
 
     @action(detail=True, methods=['post'], permission_classes=[IsOrganizerOrReadOnly])
     def assign_presentation_order(self, request, slug=None):
@@ -198,6 +247,17 @@ class TeamViewSet(viewsets.ModelViewSet):
         )
         team = serializer.save()
         Participant.objects.create(team=team, user=self.request.user)
+        invalidate_scoreboard(team.contest_id)
+
+    # 팀 이름·구성이 바뀌면 스코어보드의 행 자체가 달라진다.
+    def perform_update(self, serializer):
+        team = serializer.save()
+        invalidate_scoreboard(team.contest_id)
+
+    def perform_destroy(self, instance):
+        contest_id = instance.contest_id
+        instance.delete()
+        invalidate_scoreboard(contest_id)
 
     @action(detail=True, methods=['post'], permission_classes=[permissions.IsAuthenticated])
     def join(self, request, pk=None):
@@ -233,16 +293,20 @@ class SubmissionViewSet(viewsets.ModelViewSet):
             raise PermissionDenied('해당 팀의 참가자만 제출할 수 있습니다.')
         ensure_contest_status(team.contest, SUBMISSION_STATUSES, self.SUBMISSION_LOCKED_MESSAGE)
         serializer.save()
+        invalidate_scoreboard(team.contest_id)
 
     def perform_update(self, serializer):
-        ensure_contest_status(
-            serializer.instance.team.contest, SUBMISSION_STATUSES, self.SUBMISSION_LOCKED_MESSAGE
-        )
+        contest = serializer.instance.team.contest
+        ensure_contest_status(contest, SUBMISSION_STATUSES, self.SUBMISSION_LOCKED_MESSAGE)
         serializer.save()
+        # 제출물 제목이 스코어보드에 그대로 실린다.
+        invalidate_scoreboard(contest.pk)
 
     def perform_destroy(self, instance):
+        contest_id = instance.team.contest_id
         ensure_contest_status(instance.team.contest, SUBMISSION_STATUSES, self.SUBMISSION_LOCKED_MESSAGE)
         instance.delete()
+        invalidate_scoreboard(contest_id)
 
 
 class JudgeViewSet(viewsets.ModelViewSet):
@@ -309,6 +373,8 @@ class ScoreViewSet(viewsets.ModelViewSet):
                     if existing is not None:
                         serializer.instance = existing
                     serializer.save(judge=judge)
+                # 새 점수가 곧 새 순위다. 캐시를 비워야 다음 폴링이 바로 반영한다.
+                invalidate_scoreboard(contest.pk)
                 return
             except IntegrityError:
                 if attempt == 1:
@@ -316,10 +382,15 @@ class ScoreViewSet(viewsets.ModelViewSet):
                 serializer.instance = None
 
     def perform_update(self, serializer):
-        ensure_contest_status(
-            serializer.instance.submission.team.contest, SCORING_STATUSES, self.SCORING_LOCKED_MESSAGE
-        )
+        contest = serializer.instance.submission.team.contest
+        ensure_contest_status(contest, SCORING_STATUSES, self.SCORING_LOCKED_MESSAGE)
         serializer.save()
+        invalidate_scoreboard(contest.pk)
+
+    def perform_destroy(self, instance):
+        contest_id = instance.submission.team.contest_id
+        instance.delete()
+        invalidate_scoreboard(contest_id)
 
 
 class AwardViewSet(viewsets.ModelViewSet):

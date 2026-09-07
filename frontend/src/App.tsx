@@ -15,6 +15,12 @@ import { STATUS_LABEL } from './labels';
 import { ThemeToggle } from './ThemeToggle';
 import type { Contest } from './types';
 
+/**
+ * 첫 응답이 이 시간 안에 오면 아무 안내도 띄우지 않는다. 넘어가면 서버가 잠들어 있다고 보고
+ * 깨우는 중임을 알린다 — 무료 플랜은 15분 미사용 뒤 첫 요청에 30~50초가 걸린다.
+ */
+const WAKE_HINT_DELAY_MS = 2500;
+
 export default function App() {
   const [contests, setContests] = useState<Contest[]>([]);
   const [selectedSlug, setSelectedSlug] = useState<string | null>(null);
@@ -22,6 +28,8 @@ export default function App() {
   const [username, setUsername] = useState<string | null>(getStoredUsername());
   const [isOrganizer, setIsOrganizer] = useState(false);
   const [showCreateForm, setShowCreateForm] = useState(false);
+  // null 이면 안내를 띄우지 않는다. 숫자면 "깨우는 중"이며 그 값은 경과 초.
+  const [wakingSeconds, setWakingSeconds] = useState<number | null>(null);
 
   // 상세 화면은 항상 최신 목록의 대회 객체를 본다 (상태 전이 후에도 동기화 유지).
   const selected = contests.find((c) => c.slug === selectedSlug) ?? null;
@@ -35,8 +43,29 @@ export default function App() {
       .catch((err: Error) => setStatus(err.message));
   }, []);
 
+  // 첫 로드. 응답이 늦으면 "서버를 깨우는 중"이라고 알린다 — 안내가 없으면 빈 화면이
+  // 고장으로 보여 참가자가 그냥 나가버린다. 별도 요청을 더 보내지는 않는다(이 요청이 곧
+  // 깨우는 요청이다).
   useEffect(() => {
-    loadContests();
+    let ticker = 0;
+    const hint = window.setTimeout(() => {
+      const startedAt = Date.now();
+      setWakingSeconds(0);
+      ticker = window.setInterval(
+        () => setWakingSeconds(Math.round((Date.now() - startedAt) / 1000)),
+        1000
+      );
+    }, WAKE_HINT_DELAY_MS);
+
+    const stop = () => {
+      window.clearTimeout(hint);
+      window.clearInterval(ticker);
+    };
+    loadContests().finally(() => {
+      stop();
+      setWakingSeconds(null);
+    });
+    return stop;
   }, [loadContests]);
 
   useEffect(() => {
@@ -158,6 +187,16 @@ export default function App() {
       </header>
 
       <main className="main-content">
+        {wakingSeconds !== null && (
+          <p className="wake-hint" role="status">
+            서버를 깨우는 중입니다 <span className="wake-elapsed">{wakingSeconds}초</span>
+            <span className="wake-note">
+              한동안 접속이 없으면 서버가 잠들어 첫 요청에 최대 1분이 걸립니다. 한 번 깨어나면
+              이후는 빠릅니다.
+            </span>
+          </p>
+        )}
+
         {!username && <AuthPanel onLoggedIn={handleLoggedIn} />}
 
         {selected ? (

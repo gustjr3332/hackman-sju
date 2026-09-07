@@ -47,6 +47,7 @@ export function clearAuth() {
   localStorage.removeItem(ACCESS_TOKEN_KEY);
   localStorage.removeItem(REFRESH_TOKEN_KEY);
   localStorage.removeItem(USERNAME_KEY);
+  clearConditionalCache();
 }
 
 // 동시에 여러 요청이 401 을 받아도 리프레시는 한 번만 보낸다.
@@ -76,7 +77,7 @@ function refreshAccessToken(): Promise<boolean> {
   return refreshInFlight;
 }
 
-async function request<T>(path: string, options: RequestInit = {}, allowRefresh = true): Promise<T> {
+async function send(path: string, options: RequestInit = {}, allowRefresh = true): Promise<Response> {
   const token = getAccessToken();
   const headers = new Headers(options.headers);
   headers.set('Content-Type', 'application/json');
@@ -86,21 +87,68 @@ async function request<T>(path: string, options: RequestInit = {}, allowRefresh 
 
   if (res.status === 401 && token && allowRefresh) {
     if (await refreshAccessToken()) {
-      return request<T>(path, options, false);
+      return send(path, options, false);
     }
     clearAuth();
     window.dispatchEvent(new Event(AUTH_EXPIRED_EVENT));
     throw new Error('로그인이 만료되었습니다. 다시 로그인해 주세요.');
   }
 
-  if (!res.ok) {
+  // 304 는 "바뀐 게 없다"는 정상 응답이라 ok 가 false 여도 에러가 아니다 (conditionalGet 참고).
+  if (!res.ok && res.status !== 304) {
     const detail = await res.json().catch(() => null);
     const message =
       (detail && (detail.detail || Object.values(detail)[0])) || `요청에 실패했습니다 (${res.status})`;
-    throw new Error(Array.isArray(message) ? message[0] : String(message));
+    const error = new ApiError(Array.isArray(message) ? message[0] : String(message));
+    error.status = res.status;
+    error.body = detail;
+    throw error;
   }
+  return res;
+}
+
+/** 화면에 띄울 메시지 외에 상태 코드·응답 본문까지 봐야 하는 호출을 위해 함께 실어 보낸다. */
+export class ApiError extends Error {
+  status = 0;
+  body: unknown = null;
+}
+
+async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const res = await send(path, options);
   if (res.status === 204) return undefined as T;
   return res.json();
+}
+
+/** 다른 모듈이 같은 인증·에러 처리로 백엔드를 부를 때 쓰는 GET 래퍼 (github.ts). */
+export function apiGet<T>(path: string): Promise<T> {
+  return request<T>(path);
+}
+
+/**
+ * 마지막으로 받은 응답과 그 ETag. 폴링이 같은 경로를 반복해서 부르므로, 서버가
+ * "안 바뀜(304)"이라고 하면 본문을 받지 않고 여기 있는 값을 그대로 돌려준다.
+ */
+const conditionalCache = new Map<string, { etag: string; data: unknown }>();
+
+/**
+ * 조건부 GET. 이전 응답의 ETag 를 `If-None-Match` 로 보내고, 304 면 이전 데이터를 **같은
+ * 객체 참조로** 돌려준다 — 참조가 그대로라 React 가 재렌더까지 건너뛴다.
+ */
+async function conditionalGet<T>(path: string): Promise<T> {
+  const cached = conditionalCache.get(path);
+  const res = await send(path, cached ? { headers: { 'If-None-Match': cached.etag } } : {});
+  if (res.status === 304 && cached) return cached.data as T;
+
+  const data = (await res.json()) as T;
+  const etag = res.headers.get('ETag');
+  if (etag) conditionalCache.set(path, { etag, data });
+  else conditionalCache.delete(path);
+  return data;
+}
+
+/** 계정이 바뀌면 같은 경로라도 응답이 달라지므로(예: 결선 순위 가시성) 캐시를 버린다. */
+function clearConditionalCache() {
+  conditionalCache.clear();
 }
 
 export async function register(username: string, email: string, password: string): Promise<void> {
@@ -118,6 +166,7 @@ export async function login(username: string, password: string): Promise<AuthTok
   localStorage.setItem(ACCESS_TOKEN_KEY, tokens.access);
   localStorage.setItem(REFRESH_TOKEN_KEY, tokens.refresh);
   storeUsername(username);
+  clearConditionalCache();
   return tokens;
 }
 
@@ -156,8 +205,12 @@ export function updateContest(
   });
 }
 
+/**
+ * 5초마다 불리는 유일한 집계 엔드포인트라 조건부 GET 을 쓴다. 순위가 그대로면 서버가 304 만
+ * 돌려주므로 본문 전송·파싱·재렌더가 전부 없어진다.
+ */
 export function fetchScoreboard(slug: string): Promise<ScoreboardEntry[]> {
-  return request(`/contests/${slug}/scoreboard/`);
+  return conditionalGet(`/contests/${slug}/scoreboard/`);
 }
 
 /** 발표 순서·시작 시각을 (재)배정한다 (운영자 전용). startAt 을 생략하면 지금 시각부터 배정. */

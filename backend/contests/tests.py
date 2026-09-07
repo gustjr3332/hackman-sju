@@ -1,6 +1,13 @@
+import base64
+import json
+import urllib.error
 from decimal import Decimal
+from io import BytesIO
+from unittest import mock
+from urllib.parse import urlencode
 
 from django.contrib.auth import get_user_model
+from django.core.cache import cache
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APITestCase
@@ -8,6 +15,20 @@ from rest_framework.test import APITestCase
 from .models import Award, Contest, Judge, Score, Submission, Team
 
 User = get_user_model()
+
+
+class ApiTestCase(APITestCase):
+    """모든 API 테스트의 베이스.
+
+    스코어보드·GitHub 응답 캐시는 프로세스 메모리(LocMemCache)에 있어 DB 처럼 테스트마다
+    롤백되지 않는다. 비우지 않으면 앞 테스트가 넣어둔 순위를 뒤 테스트가 그대로 받는다.
+    `setUp` 대신 `_pre_setup` 에 거는 이유는, 하위 클래스가 `super().setUp()` 을 부르지
+    않아도 항상 실행되기 때문이다.
+    """
+
+    def _pre_setup(self):
+        super()._pre_setup()
+        cache.clear()
 
 
 def make_contest(slug='hack-2026', **kwargs):
@@ -22,7 +43,7 @@ def make_contest(slug='hack-2026', **kwargs):
     return Contest.objects.create(**defaults)
 
 
-class AuthFlowTests(APITestCase):
+class AuthFlowTests(ApiTestCase):
     def test_register_and_login(self):
         res = self.client.post('/api/auth/register/', {
             'username': 'alice', 'email': 'alice@example.com', 'password': 'strongpass123',
@@ -61,7 +82,7 @@ class AuthFlowTests(APITestCase):
         self.assertEqual(res.status_code, status.HTTP_401_UNAUTHORIZED)
 
 
-class ContestApiTests(APITestCase):
+class ContestApiTests(ApiTestCase):
     def setUp(self):
         self.organizer = User.objects.create_user('organizer', password='pw12345678', is_staff=True)
         self.participant = User.objects.create_user('participant', password='pw12345678')
@@ -133,7 +154,7 @@ class ContestApiTests(APITestCase):
         self.assertFalse(Submission.objects.filter(team=team).exists())
 
 
-class ContestStatusTransitionTests(APITestCase):
+class ContestStatusTransitionTests(ApiTestCase):
     def setUp(self):
         self.organizer = User.objects.create_user('organizer', password='pw12345678', is_staff=True)
         self.participant = User.objects.create_user('participant', password='pw12345678')
@@ -160,7 +181,7 @@ class ContestStatusTransitionTests(APITestCase):
         self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
 
 
-class StatusGatingTests(APITestCase):
+class StatusGatingTests(ApiTestCase):
     """대회 상태(모집중 → 진행중 → 심사중 → 종료)에 따라 허용되는 동작이 달라진다."""
 
     def setUp(self):
@@ -243,7 +264,7 @@ class StatusGatingTests(APITestCase):
         self.assertEqual(score.value, Decimal('7'))
 
 
-class MeAndJudgeAssignmentTests(APITestCase):
+class MeAndJudgeAssignmentTests(ApiTestCase):
     def setUp(self):
         self.organizer = User.objects.create_user('organizer', password='pw12345678', is_staff=True)
         self.participant = User.objects.create_user('participant', password='pw12345678')
@@ -336,7 +357,7 @@ class MeAndJudgeAssignmentTests(APITestCase):
         self.assertFalse(entry['is_judge'])
 
 
-class ContestListQueryCountTests(APITestCase):
+class ContestListQueryCountTests(ApiTestCase):
     """team_count/is_judge 는 annotate 로 얻으므로 대회 수가 늘어도 쿼리 수는 고정이다."""
 
     def setUp(self):
@@ -369,7 +390,7 @@ class ContestListQueryCountTests(APITestCase):
         self.assertTrue(all(entry['is_judge'] for entry in res.data))
 
 
-class TeamListQueryCountTests(APITestCase):
+class TeamListQueryCountTests(ApiTestCase):
     """참가자 username 을 prefetch 하므로 팀/참가자 수가 늘어도 쿼리 수는 고정이다."""
 
     def setUp(self):
@@ -398,7 +419,7 @@ class TeamListQueryCountTests(APITestCase):
         self.assertEqual(len(res.data), baseline + 6)
 
 
-class ScoreboardTests(APITestCase):
+class ScoreboardTests(ApiTestCase):
     def setUp(self):
         self.contest = make_contest(status=Contest.Status.JUDGING)
         self.team = Team.objects.create(contest=self.contest, name='팀 A')
@@ -485,7 +506,7 @@ class ScoreboardTests(APITestCase):
         self.assertEqual(score.comment, '수정')
 
 
-class ScoreboardRankingTests(APITestCase):
+class ScoreboardRankingTests(ApiTestCase):
     """스코어보드는 라운드별로 평균 점수 순위를 매기고, 동점은 같은 순위를 공유한다."""
 
     def setUp(self):
@@ -570,7 +591,7 @@ class ScoreboardRankingTests(APITestCase):
         self.assertEqual(rounds, ['preliminary', 'preliminary', 'final', 'final'])
 
 
-class ScoreboardPrivacyTests(APITestCase):
+class ScoreboardPrivacyTests(ApiTestCase):
     """예선(코드/기능) 점수는 항상 공개, 결선(발표 포함 종합) 점수는 시상 전까지 비공개."""
 
     def setUp(self):
@@ -608,7 +629,7 @@ class ScoreboardPrivacyTests(APITestCase):
         self.assertEqual(self.rounds_in(res), {'preliminary', 'final'})
 
 
-class PresentationScheduleTests(APITestCase):
+class PresentationScheduleTests(ApiTestCase):
     def setUp(self):
         self.organizer = User.objects.create_user('organizer', password='pw12345678', is_staff=True)
         self.participant = User.objects.create_user('participant', password='pw12345678')
@@ -663,7 +684,7 @@ class PresentationScheduleTests(APITestCase):
         self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
 
 
-class AwardApiTests(APITestCase):
+class AwardApiTests(ApiTestCase):
     def setUp(self):
         self.organizer = User.objects.create_user('organizer', password='pw12345678', is_staff=True)
         self.participant = User.objects.create_user('participant', password='pw12345678')
@@ -708,3 +729,182 @@ class AwardApiTests(APITestCase):
         res = self.client.delete(f'/api/awards/{award.id}/')
         self.assertEqual(res.status_code, status.HTTP_204_NO_CONTENT)
         self.assertFalse(Award.objects.filter(pk=award.id).exists())
+
+
+def fake_github_response(payload):
+    """`urllib.request.urlopen` 이 돌려주는 컨텍스트 매니저 흉내 (JSON 본문만 필요하다)."""
+    body = BytesIO(json.dumps(payload).encode('utf-8'))
+    fake = mock.MagicMock()
+    fake.__enter__.return_value = body
+    fake.__exit__.return_value = False
+    return fake
+
+
+class ScoreboardCachingTests(ApiTestCase):
+    """스코어보드는 몇 초 캐시 + ETag 로 폴링 부담을 줄이되, 쓰기 직후에는 반드시 최신이다."""
+
+    def setUp(self):
+        self.contest = make_contest(status=Contest.Status.JUDGING)
+        self.team = Team.objects.create(contest=self.contest, name='팀 A')
+        self.submission = Submission.objects.create(team=self.team, title='제출물 A')
+        self.judge_user = User.objects.create_user('judge1', password='pw12345678')
+        self.judge = Judge.objects.create(contest=self.contest, user=self.judge_user)
+        self.url = f'/api/contests/{self.contest.slug}/scoreboard/'
+
+    def score(self, value, round_value='preliminary'):
+        return Score.objects.create(
+            submission=self.submission, judge=self.judge, round=round_value, value=value,
+        )
+
+    def test_repeat_request_is_served_from_cache_without_aggregating_again(self):
+        self.score('9')
+        first = self.client.get(self.url)
+        self.assertEqual(first.status_code, status.HTTP_200_OK)
+
+        # 캐시 적중이면 팀/집계 쿼리가 사라지고 대회 조회 한 번만 남는다.
+        with self.assertNumQueries(1):
+            second = self.client.get(self.url)
+        self.assertEqual(second.data, first.data)
+        self.assertEqual(second['ETag'], first['ETag'])
+
+    def test_unchanged_board_answers_304_with_no_body(self):
+        self.score('9')
+        first = self.client.get(self.url)
+        etag = first['ETag']
+
+        second = self.client.get(self.url, HTTP_IF_NONE_MATCH=etag)
+        self.assertEqual(second.status_code, status.HTTP_304_NOT_MODIFIED)
+        self.assertEqual(second.content, b'')
+        self.assertEqual(second['ETag'], etag)
+
+    def test_public_and_judge_boards_do_not_share_a_cache_entry(self):
+        self.score('8', round_value='final')
+
+        public = self.client.get(self.url)
+        self.assertEqual({e['round'] for e in public.data}, {'preliminary'})
+
+        self.client.force_authenticate(self.judge_user)
+        judged = self.client.get(self.url)
+        self.assertEqual({e['round'] for e in judged.data}, {'preliminary', 'final'})
+        self.assertNotEqual(public['ETag'], judged['ETag'])
+
+    def test_new_score_invalidates_cache_immediately(self):
+        before = self.client.get(self.url)
+        self.assertIsNone(before.data[0]['average_score'])
+
+        self.client.force_authenticate(self.judge_user)
+        res = self.client.post('/api/scores/', {
+            'submission': self.submission.id, 'round': 'preliminary', 'value': '9.5',
+        })
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED, res.data)
+
+        self.client.force_authenticate(None)
+        after = self.client.get(self.url)
+        self.assertEqual(str(after.data[0]['average_score']), '9.50')
+        self.assertNotEqual(after['ETag'], before['ETag'])
+
+    def test_new_team_invalidates_cache_immediately(self):
+        self.client.get(self.url)  # 캐시 채우기
+
+        Contest.objects.filter(pk=self.contest.pk).update(status=Contest.Status.RECRUITING)
+        joiner = User.objects.create_user('joiner', password='pw12345678')
+        self.client.force_authenticate(joiner)
+        res = self.client.post('/api/teams/', {'contest': self.contest.slug, 'name': '팀 B'})
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED, res.data)
+
+        self.client.force_authenticate(None)
+        after = self.client.get(self.url)
+        self.assertEqual({e['team_name'] for e in after.data}, {'팀 A', '팀 B'})
+
+
+class GithubProxyTests(ApiTestCase):
+    """심사 도구의 GitHub 프록시 — 저장소 URL 만 받고, 로그인한 사용자만 쓸 수 있다."""
+
+    def setUp(self):
+        self.user = User.objects.create_user('judge1', password='pw12345678')
+        self.repo = 'https://github.com/octocat/Hello-World'
+
+    def get(self, resource, **params):
+        query = urlencode(params)
+        return self.client.get(f'/api/github/{resource}/?{query}')
+
+    def test_anonymous_is_rejected(self):
+        res = self.get('repo', repo=self.repo)
+        self.assertEqual(res.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_non_github_url_is_rejected_without_calling_out(self):
+        self.client.force_authenticate(self.user)
+        with mock.patch('contests.github.urllib.request.urlopen') as urlopen:
+            res = self.get('repo', repo='https://gitlab.com/foo/bar')
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        urlopen.assert_not_called()
+
+    def test_repo_returns_default_branch_and_caches_the_upstream_call(self):
+        self.client.force_authenticate(self.user)
+        with mock.patch('contests.github.urllib.request.urlopen') as urlopen:
+            urlopen.return_value = fake_github_response({'default_branch': 'develop'})
+            first = self.get('repo', repo=self.repo)
+            second = self.get('repo', repo=self.repo)
+
+        self.assertEqual(first.data, {'default_branch': 'develop'})
+        self.assertEqual(second.data, {'default_branch': 'develop'})
+        # 두 번째 요청은 캐시에서 나가므로 GitHub 호출은 한 번뿐이다.
+        self.assertEqual(urlopen.call_count, 1)
+
+    def test_token_is_sent_to_github_but_never_to_the_client(self):
+        self.client.force_authenticate(self.user)
+        with self.settings(GITHUB_TOKEN='ghp_secret'):
+            with mock.patch('contests.github.urllib.request.urlopen') as urlopen:
+                urlopen.return_value = fake_github_response({'default_branch': 'main'})
+                res = self.get('repo', repo=self.repo)
+                sent = urlopen.call_args[0][0]
+        self.assertEqual(sent.get_header('Authorization'), 'Bearer ghp_secret')
+        self.assertNotIn('ghp_secret', res.content.decode())
+
+    def test_tree_returns_blobs_only(self):
+        self.client.force_authenticate(self.user)
+        payload = {
+            'truncated': False,
+            'tree': [
+                {'path': 'src', 'type': 'tree'},
+                {'path': 'src/main.py', 'type': 'blob'},
+                {'path': 'README.md', 'type': 'blob'},
+            ],
+        }
+        with mock.patch('contests.github.urllib.request.urlopen') as urlopen:
+            urlopen.return_value = fake_github_response(payload)
+            res = self.get('tree', repo=self.repo, branch='main')
+        self.assertEqual([f['path'] for f in res.data['files']], ['src/main.py', 'README.md'])
+        self.assertFalse(res.data['truncated'])
+
+    def test_file_content_is_base64_decoded(self):
+        self.client.force_authenticate(self.user)
+        source = 'print("안녕")'
+        payload = {'content': base64.b64encode(source.encode()).decode(), 'encoding': 'base64'}
+        with mock.patch('contests.github.urllib.request.urlopen') as urlopen:
+            urlopen.return_value = fake_github_response(payload)
+            res = self.get('file', repo=self.repo, path='src/main.py')
+        self.assertEqual(res.data['content'], source)
+
+    def test_path_traversal_is_refused(self):
+        self.client.force_authenticate(self.user)
+        with mock.patch('contests.github.urllib.request.urlopen') as urlopen:
+            res = self.get('file', repo=self.repo, path='../../../user/repos')
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        urlopen.assert_not_called()
+
+    def test_rate_limit_is_reported_as_such(self):
+        self.client.force_authenticate(self.user)
+        error = urllib.error.HTTPError(url='x', code=403, msg='rate limited', hdrs=None, fp=None)
+        with mock.patch('contests.github.urllib.request.urlopen', side_effect=error):
+            res = self.get('repo', repo=self.repo)
+        self.assertEqual(res.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        self.assertEqual(res.data['kind'], 'rate-limit')
+
+    def test_missing_repo_is_reported_as_not_found(self):
+        self.client.force_authenticate(self.user)
+        error = urllib.error.HTTPError(url='x', code=404, msg='not found', hdrs=None, fp=None)
+        with mock.patch('contests.github.urllib.request.urlopen', side_effect=error):
+            res = self.get('repo', repo=self.repo)
+        self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(res.data['kind'], 'not-found')

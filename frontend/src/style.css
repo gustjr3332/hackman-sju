@@ -297,6 +297,33 @@ body {
   margin: 0;
 }
 
+/* 슬립 상태의 서버를 깨우는 동안 뜨는 안내. 상태 표시 규칙과 같이 왼쪽 컬러 레일을 쓴다. */
+.wake-hint {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  margin: 0 0 20px;
+  padding: 12px 14px;
+  border-left: 3px solid var(--judging);
+  background: var(--paper-raised);
+  font-size: 0.9rem;
+  color: var(--ink);
+}
+
+.wake-elapsed {
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--judging);
+}
+
+.wake-note {
+  flex-basis: 100%;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
 /* ---------- contest list (hairline rows) ---------- */
 
 .contest-list {

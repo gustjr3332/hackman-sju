@@ -33,6 +33,8 @@ import type {
 const POLL_INTERVAL_MS = 5000;
 /** 종료된 대회는 상태가 다시 열리는지만 느리게 확인한다. */
 const CLOSED_POLL_INTERVAL_MS = 30000;
+/** 주기에 섞는 흔들림 비율(±20%). 열려 있는 모든 화면이 같은 초에 몰리는 것을 막는다. */
+const POLL_JITTER_RATIO = 0.2;
 
 const DATE_FORMAT: Intl.DateTimeFormatOptions = {
   year: 'numeric',
@@ -122,15 +124,28 @@ export function ContestDetail({
   }, [load]);
 
   useEffect(() => {
-    const tick = () => {
+    // 종료된 대회는 순위가 더 바뀌지 않으므로 상태 재개 감지용으로만 느리게 확인한다.
+    const base = polling ? POLL_INTERVAL_MS : CLOSED_POLL_INTERVAL_MS;
+    // 프로젝터·참가자·심사위원 화면이 한꺼번에 열려 있으면 고정 주기에서는 요청이 같은 초에
+    // 겹친다. 매번 다른 지연으로 다시 예약해 서버가 받는 요청을 고르게 편다.
+    const nextDelay = () => base * (1 + (Math.random() * 2 - 1) * POLL_JITTER_RATIO);
+
+    let timer = 0;
+    const schedule = () => {
+      timer = window.setTimeout(() => {
+        if (document.visibilityState === 'visible') refreshLive();
+        schedule();
+      }, nextDelay());
+    };
+    const onVisible = () => {
       if (document.visibilityState === 'visible') refreshLive();
     };
-    // 종료된 대회는 순위가 더 바뀌지 않으므로 상태 재개 감지용으로만 느리게 확인한다.
-    const timer = window.setInterval(tick, polling ? POLL_INTERVAL_MS : CLOSED_POLL_INTERVAL_MS);
-    document.addEventListener('visibilitychange', tick);
+
+    schedule();
+    document.addEventListener('visibilitychange', onVisible);
     return () => {
-      window.clearInterval(timer);
-      document.removeEventListener('visibilitychange', tick);
+      window.clearTimeout(timer);
+      document.removeEventListener('visibilitychange', onVisible);
     };
   }, [polling, refreshLive]);
 
