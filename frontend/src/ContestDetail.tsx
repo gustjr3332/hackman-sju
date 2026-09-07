@@ -250,12 +250,6 @@ export function ContestDetail({
           <button type="submit">팀 만들기</button>
         </form>
       )}
-      {username && !canFormTeams(contest.status) && (
-        <p className="lock-hint">
-          팀 모집이 마감되었습니다 (현재 상태: {STATUS_LABEL[contest.status]}).
-        </p>
-      )}
-
       {status && <p className="form-error">{status}</p>}
 
       <div>
@@ -279,11 +273,8 @@ export function ContestDetail({
         contest={contest}
         teams={teams}
         isOrganizer={isOrganizer}
-        onAssigned={(updated) => {
-          onContestUpdated(updated);
-          // 팀별 presentation_order/시각은 /teams/ 응답에만 있어 대회 갱신만으론 안 보인다.
-          refreshLive();
-        }}
+        // 발표 순서·시작 시각은 /teams/ 응답에만 있어 대회 갱신만으론 안 보인다.
+        onChanged={refreshLive}
       />
 
       {isJudge && (
@@ -437,8 +428,6 @@ function StatusControl({ contest, onUpdated }: StatusControlProps) {
     }
   }
 
-  const currentIndex = STATUS_ORDER.indexOf(contest.status);
-
   return (
     <div className="status-control-wrap">
       <div className="status-control" role="group" aria-label="대회 상태 전이">
@@ -453,9 +442,9 @@ function StatusControl({ contest, onUpdated }: StatusControlProps) {
               type="button"
               className={`status-${s}${s === contest.status ? ' active' : ''}`}
               aria-pressed={s === contest.status}
-              // 다음 한 단계로만 전이 가능(서버 ContestSerializer.validate()와 동일한 규칙).
-              // 되돌리거나 건너뛰는 버튼은 아예 눌리지 않게 비활성화한다.
-              disabled={busy || index !== currentIndex + 1}
+              // 어느 상태로든 자유롭게 오갈 수 있다(서버도 순서를 강제하지 않는다). 현재 상태만
+              // 누를 이유가 없어 비활성이다 — 되돌리기·건너뛰기는 모두 허용된다.
+              disabled={busy || s === contest.status}
               onClick={() => changeStatus(s)}
             >
               {STATUS_LABEL[s]}

@@ -44,18 +44,20 @@ class SubmissionSerializer(serializers.ModelSerializer):
 class TeamSerializer(serializers.ModelSerializer):
     participants = ParticipantSerializer(many=True, read_only=True)
     submission = SubmissionSerializer(read_only=True)
-    # 발표 시작/종료 시각은 저장된 값이 아니라 contest.presentation_start_at 과
-    # presentation_minutes 로부터 매번 계산한다 — 발표 시간을 조정해도 재배정 없이 즉시 반영된다.
-    presentation_starts_at = serializers.SerializerMethodField()
-    presentation_ends_at = serializers.SerializerMethodField()
+    # 발표 시작 시각은 운영자가 "발표 시작"을 누른 실제 시각이다(예정표가 아니다). 종료 예정
+    # 시각만 시작 시각 + 이 팀의 발표 시간으로 계산해 프론트 타이머가 쓸 수 있게 내려준다.
+    # 아직 시작하지 않았거나 이미 끝난 팀은 null 이라 타이머가 돌지 않는다.
+    presentation_due_at = serializers.SerializerMethodField()
+    effective_presentation_minutes = serializers.IntegerField(read_only=True)
 
     class Meta:
         model = Team
         fields = [
             'id', 'contest', 'name', 'created_at', 'participants', 'submission',
-            'presentation_order', 'presentation_starts_at', 'presentation_ends_at',
+            'presentation_order', 'presentation_minutes', 'effective_presentation_minutes',
+            'presentation_started_at', 'presentation_ended_at', 'presentation_due_at',
         ]
-        read_only_fields = ['created_at', 'presentation_order']
+        read_only_fields = ['created_at', 'presentation_started_at', 'presentation_ended_at']
         validators = [
             UniqueTogetherValidator(
                 queryset=Team.objects.all(),
@@ -64,23 +66,20 @@ class TeamSerializer(serializers.ModelSerializer):
             ),
         ]
 
-    def _slot_bounds(self, obj):
-        contest = obj.contest
-        if obj.presentation_order is None or contest.presentation_start_at is None:
-            return None, None
-        offset = timedelta(minutes=contest.presentation_minutes * (obj.presentation_order - 1))
-        start = contest.presentation_start_at + offset
-        end = start + timedelta(minutes=contest.presentation_minutes)
-        return start, end
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # 발표 순서·발표 시간은 운영자만 정한다. 팀 수정 권한(IsTeamMemberOrReadOnly)은 팀
+        # 참가자에게도 있으므로, 여기서 막지 않으면 참가자가 자기 팀 순서를 앞당길 수 있다.
+        user = getattr(self.context.get('request'), 'user', None)
+        if not (user and user.is_authenticated and user.is_staff):
+            self.fields['presentation_order'].read_only = True
+            self.fields['presentation_minutes'].read_only = True
 
-    def get_presentation_starts_at(self, obj):
-        start, _ = self._slot_bounds(obj)
-        return serializers.DateTimeField().to_representation(start) if start else None
-
-    def get_presentation_ends_at(self, obj):
-        _, end = self._slot_bounds(obj)
-        end = serializers.DateTimeField().to_representation(end) if end else None
-        return end
+    def get_presentation_due_at(self, obj):
+        if obj.presentation_started_at is None or obj.presentation_ended_at is not None:
+            return None
+        due = obj.presentation_started_at + timedelta(minutes=obj.effective_presentation_minutes)
+        return serializers.DateTimeField().to_representation(due)
 
 
 class ContestSerializer(serializers.ModelSerializer):
@@ -91,23 +90,19 @@ class ContestSerializer(serializers.ModelSerializer):
     # 비교하는 대신 서버 판단을 그대로 쓰고, 폴링으로 배정 변경이 자동 반영된다.
     is_judge = serializers.SerializerMethodField()
 
-    # 상태 전이 순서: recruiting → ongoing → judging → closed 만 허용(제자리도 허용, 역행·건너뛰기
-    # 금지). 이 표는 "누가" 바꿀 수 있는지가 아니라 "무엇으로" 바꿀 수 있는지만 정한다 — 누가
-    # 바꿀 수 있는지는 ContestViewSet.permission_classes = [IsOrganizerOrReadOnly] (운영자만)가
-    # 이미 지키고 있으므로 여기서는 건드리지 않는다.
-    ALLOWED_NEXT_STATUS = {
-        Contest.Status.RECRUITING: {Contest.Status.RECRUITING, Contest.Status.ONGOING},
-        Contest.Status.ONGOING: {Contest.Status.ONGOING, Contest.Status.JUDGING},
-        Contest.Status.JUDGING: {Contest.Status.JUDGING, Contest.Status.CLOSED},
-        Contest.Status.CLOSED: {Contest.Status.CLOSED},
-    }
+    # 상태 전이에 순서 제약은 없다. 운영자가 대회의 시간선을 자유롭게 오갈 수 있어야 한다 —
+    # 실수로 한 단계 넘겼거나(진행중을 너무 일찍 눌렀다), 모집을 다시 열거나(모집중으로 되돌림),
+    # 시상식을 다시 하려면(종료 → 심사중) 되돌리는 길이 있어야 한다. 되돌려도 팀·제출물·점수·
+    # 시상은 그대로 남는다(상태 필드만 바뀐다). 누가 바꿀 수 있는지는
+    # ContestViewSet.permission_classes = [IsOrganizerOrReadOnly] 가 지킨다 — 운영자만이다.
+    # 유효하지 않은 값은 여기가 아니라 model choices 가 걸러 400 을 낸다.
 
     class Meta:
         model = Contest
         fields = [
             'slug', 'name', 'description', 'status',
             'start_at', 'end_at', 'created_at', 'updated_at', 'team_count', 'is_judge',
-            'presentation_start_at', 'presentation_minutes',
+            'presentation_minutes',
         ]
         read_only_fields = ['created_at', 'updated_at']
 
@@ -117,14 +112,6 @@ class ContestSerializer(serializers.ModelSerializer):
         if start_at and end_at and end_at < start_at:
             raise serializers.ValidationError({'end_at': '종료 일시는 시작 일시보다 빨라서는 안 됩니다.'})
 
-        new_status = attrs.get('status')
-        if self.instance is not None and new_status is not None:
-            allowed = self.ALLOWED_NEXT_STATUS.get(self.instance.status, set())
-            if new_status not in allowed:
-                current_label = self.instance.get_status_display()
-                raise serializers.ValidationError(
-                    {'status': f'{current_label} 상태에서는 이 단계로 바꿀 수 없습니다 (현재 상태: {current_label}).'}
-                )
         return attrs
 
     def get_team_count(self, obj):

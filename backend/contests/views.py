@@ -6,7 +6,6 @@ from django.core.cache import cache
 from django.db import IntegrityError, transaction
 from django.db.models import Avg, BooleanField, Case, Count, Exists, OuterRef, Prefetch, Value, When
 from django.utils import timezone
-from django.utils.dateparse import parse_datetime
 from rest_framework import generics, permissions, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
@@ -33,7 +32,9 @@ from .serializers import (
 )
 
 # 대회 상태별 허용 동작. 프론트엔드 `src/rules.ts`와 동일한 규칙을 유지한다.
-TEAM_FORMATION_STATUSES = {Contest.Status.RECRUITING, Contest.Status.ONGOING}
+# 팀 모집은 모집중에서만 열린다 — 대회가 시작된 뒤에 팀이 새로 생기면 발표 순서·심사 배정이
+# 이미 정해진 뒤에 인원이 바뀐다. 제출물은 다르다: 진행중이 곧 개발 시간이므로 계속 수정 가능.
+TEAM_FORMATION_STATUSES = {Contest.Status.RECRUITING}
 SUBMISSION_STATUSES = {Contest.Status.RECRUITING, Contest.Status.ONGOING}
 SCORING_STATUSES = {Contest.Status.JUDGING}
 
@@ -43,6 +44,20 @@ def ensure_contest_status(contest, allowed, message):
     if contest.status not in allowed:
         label = contest.get_status_display()
         raise PermissionDenied(f'{message} (현재 상태: {label})')
+
+
+def is_contest_judge(contest, user):
+    """이 사용자가 이 대회의 심사위원인지.
+
+    `ContestViewSet.get_queryset()` 이 이미 `is_judge` 를 EXISTS 로 annotate 해 두므로,
+    거기서 온 객체라면 쿼리를 한 번 더 던지지 않는다. 5초마다 폴링되는 스코어보드에서 이
+    한 줄이 접속자 수만큼 반복되던 EXISTS 쿼리를 없앤다. annotate 없이 온 객체(다른 뷰,
+    직접 조회)도 안전하게 동작하도록 없을 때만 실제 쿼리로 떨어진다.
+    """
+    annotated = getattr(contest, 'is_judge', None)
+    if annotated is not None:
+        return bool(annotated)
+    return Judge.objects.filter(contest=contest, user=user).exists()
 
 
 def scoreboard_cache_key(contest_slug, is_privileged):
@@ -114,9 +129,7 @@ class ContestViewSet(viewsets.ModelViewSet):
         contest = self.get_object()
         user = request.user
         is_privileged = bool(
-            user
-            and user.is_authenticated
-            and (user.is_staff or Judge.objects.filter(contest=contest, user=user).exists())
+            user and user.is_authenticated and (user.is_staff or is_contest_judge(contest, user))
         )
 
         cache_key = scoreboard_cache_key(contest.slug, is_privileged)
@@ -193,21 +206,11 @@ class ContestViewSet(viewsets.ModelViewSet):
         """Lock in the presentation running order and start time (organizer only).
 
         Order follows submission time (earliest first); teams that never submitted go
-        last, alphabetically. Re-running this reassigns every team's slot, so organizers
-        can call it again after late drops/additions before presentations start.
+        last, alphabetically. This is only a starting point — the organizer can reorder
+        any team afterwards. It sets no start times: presentations begin when the
+        organizer presses 발표 시작 on a team.
         """
         contest = self.get_object()
-        start_at_raw = request.data.get('start_at')
-        if start_at_raw:
-            start_at = parse_datetime(start_at_raw)
-            if start_at is None:
-                return Response(
-                    {'start_at': ['시작 시각 형식이 올바르지 않습니다 (ISO 8601).']},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-        else:
-            start_at = timezone.now()
-
         teams = list(
             contest.teams.select_related('submission').order_by(
                 Case(When(submission__isnull=True, then=Value(1)), default=Value(0)),
@@ -218,9 +221,7 @@ class ContestViewSet(viewsets.ModelViewSet):
         for index, team in enumerate(teams, start=1):
             team.presentation_order = index
         Team.objects.bulk_update(teams, ['presentation_order'])
-
-        contest.presentation_start_at = start_at
-        contest.save(update_fields=['presentation_start_at'])
+        invalidate_scoreboard(contest.slug)
         return Response(ContestSerializer(contest, context=self.get_serializer_context()).data)
 
 
@@ -243,7 +244,7 @@ class TeamViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         ensure_contest_status(
             serializer.validated_data['contest'], TEAM_FORMATION_STATUSES,
-            '모집중 또는 진행중 상태에서만 팀을 만들 수 있습니다.',
+            '모집중 상태에서만 팀을 만들 수 있습니다.',
         )
         team = serializer.save()
         Participant.objects.create(team=team, user=self.request.user)
@@ -264,12 +265,53 @@ class TeamViewSet(viewsets.ModelViewSet):
         team = self.get_object()
         ensure_contest_status(
             team.contest, TEAM_FORMATION_STATUSES,
-            '모집중 또는 진행중 상태에서만 팀에 참가할 수 있습니다.',
+            '모집중 상태에서만 팀에 참가할 수 있습니다.',
         )
         participant, created = Participant.objects.get_or_create(team=team, user=request.user)
         if not created:
             return Response({'detail': '이미 참가 중인 팀입니다.'}, status=status.HTTP_400_BAD_REQUEST)
         return Response(ParticipantSerializer(participant).data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=['post'], permission_classes=[IsOrganizer])
+    def start_presentation(self, request, pk=None):
+        """이 팀의 발표를 지금 시작한다 (운영자만).
+
+        시작 시각을 저장하는 쪽이 시계에 맞춘 예정표보다 현장에 맞는다 — 앞 팀이 늦어져도
+        뒤 팀 시간이 깎이지 않고, 팀 교체·쉬는 시간에는 시작된 팀이 없어 타이머가 멈춘다.
+        한 대회에서 동시에 두 팀이 발표할 수는 없으므로, 아직 안 끝난 다른 팀은 여기서 끝낸다.
+        """
+        team = self.get_object()
+        now = timezone.now()
+        with transaction.atomic():
+            Team.objects.filter(
+                contest_id=team.contest_id, presentation_started_at__isnull=False,
+                presentation_ended_at__isnull=True,
+            ).exclude(pk=team.pk).update(presentation_ended_at=now)
+            team.presentation_started_at = now
+            team.presentation_ended_at = None
+            team.save(update_fields=['presentation_started_at', 'presentation_ended_at'])
+        return Response(self.get_serializer(team).data)
+
+    @action(detail=True, methods=['post'], permission_classes=[IsOrganizer])
+    def end_presentation(self, request, pk=None):
+        """발표를 끝낸다 (운영자만). 남은 시간이 있어도 즉시 멈추고, 타이머는 더 흐르지 않는다."""
+        team = self.get_object()
+        if team.presentation_started_at is None:
+            return Response(
+                {'detail': '아직 시작하지 않은 발표입니다.'}, status=status.HTTP_400_BAD_REQUEST
+            )
+        team.presentation_ended_at = timezone.now()
+        team.save(update_fields=['presentation_ended_at'])
+        return Response(self.get_serializer(team).data)
+
+    @action(detail=True, methods=['post'], permission_classes=[IsOrganizer])
+    def reset_presentation(self, request, pk=None):
+        """시작/종료 기록을 지운다 (운영자만) — 실수로 눌렀을 때 되돌리는 길."""
+        team = self.get_object()
+        team.presentation_started_at = None
+        team.presentation_ended_at = None
+        team.save(update_fields=['presentation_started_at', 'presentation_ended_at'])
+        return Response(self.get_serializer(team).data)
 
 
 class SubmissionViewSet(viewsets.ModelViewSet):

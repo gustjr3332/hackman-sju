@@ -1355,6 +1355,63 @@ body {
   border-radius: 2px;
 }
 
+/* 운영자 전용 조작부. 팀이 많으면 한 줄에 다 못 들어가므로 접힌다. */
+.presentation-controls {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.presentation-controls button {
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink);
+  border-radius: 2px;
+  padding: 5px 9px;
+  font: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.presentation-controls button:disabled {
+  color: var(--muted);
+  cursor: not-allowed;
+}
+
+/* 현장에서 누르는 버튼은 하나뿐이어야 눈에 띈다 — 발표 시작/종료. */
+.presentation-controls .presentation-primary {
+  background: var(--ink);
+  color: var(--paper);
+  border-color: var(--ink);
+  font-weight: 600;
+}
+
+.presentation-controls .presentation-primary:disabled {
+  background: var(--line);
+  border-color: var(--line);
+  color: var(--muted);
+}
+
+.presentation-minutes {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.presentation-minutes input {
+  width: 3.6em;
+  padding: 4px 6px;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.8rem;
+}
+
 /* ---------- award management + ceremony ---------- */
 
 .award-form {

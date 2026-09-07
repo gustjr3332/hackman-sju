@@ -221,12 +221,35 @@ export function fetchScoreboard(slug: string): Promise<ScoreboardEntry[]> {
   return conditionalGet(`/contests/${slug}/scoreboard/`);
 }
 
-/** 발표 순서·시작 시각을 (재)배정한다 (운영자 전용). startAt 을 생략하면 지금 시각부터 배정. */
-export function assignPresentationOrder(slug: string, startAt?: string): Promise<Contest> {
-  return request(`/contests/${slug}/assign_presentation_order/`, {
-    method: 'POST',
-    body: JSON.stringify(startAt ? { start_at: startAt } : {}),
-  });
+/**
+ * 발표 순서를 제출 시각순으로 (재)배정한다 (운영자 전용). 시작 시각은 정하지 않는다 —
+ * 발표는 운영자가 팀마다 "발표 시작"을 눌러야 시작된다.
+ */
+export function assignPresentationOrder(slug: string): Promise<Contest> {
+  return request(`/contests/${slug}/assign_presentation_order/`, { method: 'POST' });
+}
+
+/** 발표 순서·발표 시간을 팀 단위로 바꾼다 (운영자 전용). */
+export function updateTeamPresentation(
+  teamId: number,
+  data: { presentation_order?: number; presentation_minutes?: number | null }
+): Promise<Team> {
+  return request(`/teams/${teamId}/`, { method: 'PATCH', body: JSON.stringify(data) });
+}
+
+/** 이 팀의 발표를 지금 시작한다 (운영자 전용). 아직 안 끝난 다른 팀은 자동으로 종료된다. */
+export function startPresentation(teamId: number): Promise<Team> {
+  return request(`/teams/${teamId}/start_presentation/`, { method: 'POST' });
+}
+
+/** 발표를 끝낸다 (운영자 전용). 남은 시간이 있어도 타이머가 멈춘다. */
+export function endPresentation(teamId: number): Promise<Team> {
+  return request(`/teams/${teamId}/end_presentation/`, { method: 'POST' });
+}
+
+/** 시작/종료 기록을 지운다 (운영자 전용) — 실수로 눌렀을 때 되돌린다. */
+export function resetPresentation(teamId: number): Promise<Team> {
+  return request(`/teams/${teamId}/reset_presentation/`, { method: 'POST' });
 }
 
 // ---------- teams ----------

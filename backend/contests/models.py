@@ -16,10 +16,11 @@ class Contest(models.Model):
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.RECRUITING)
     start_at = models.DateTimeField()
     end_at = models.DateTimeField()
-    # 발표 일정: assign_presentation_order 가 채운다. 팀 발표 시작 시각은
-    # presentation_start_at + presentation_minutes * (team.presentation_order - 1) 로 계산한다.
-    presentation_start_at = models.DateTimeField(null=True, blank=True)
-    presentation_minutes = models.PositiveIntegerField(default=10, validators=[MinValueValidator(1)])
+    # 팀이 따로 정하지 않았을 때 쓰는 기본 발표 시간(분). 실제 시작 시각은 저장하지 않는다 —
+    # 운영자가 팀마다 "발표 시작"을 눌러야 시작되고, 그 시각이 Team 에 기록된다.
+    presentation_minutes = models.PositiveIntegerField(
+        default=10, validators=[MinValueValidator(1), MaxValueValidator(30)]
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -34,8 +35,21 @@ class Team(models.Model):
     contest = models.ForeignKey(Contest, related_name='teams', on_delete=models.CASCADE)
     name = models.CharField(max_length=100)
     created_at = models.DateTimeField(auto_now_add=True)
-    # 발표 순서(1부터). ContestViewSet.assign_presentation_order 가 한 번에 채운다.
+    # 발표 순서(1부터). assign_presentation_order 가 제출 시각순으로 한 번에 채우고, 그 뒤로는
+    # 운영자가 자유롭게 재배치할 수 있다.
     presentation_order = models.PositiveIntegerField(null=True, blank=True)
+    # 이 팀만의 발표 시간(분). null 이면 contest.presentation_minutes 를 따른다.
+    presentation_minutes = models.PositiveIntegerField(
+        null=True, blank=True, validators=[MinValueValidator(1), MaxValueValidator(30)]
+    )
+    # 운영자가 "발표 시작"을 누른 실제 시각. 시계에 맞춘 예정표가 아니라 실제로 벌어진 일을
+    # 기록한다 — 팀 교체·쉬는 시간에는 아무 팀도 시작 상태가 아니므로 타이머가 흐르지 않는다.
+    presentation_started_at = models.DateTimeField(null=True, blank=True)
+    presentation_ended_at = models.DateTimeField(null=True, blank=True)
+
+    @property
+    def effective_presentation_minutes(self):
+        return self.presentation_minutes or self.contest.presentation_minutes
 
     class Meta:
         ordering = ['name']

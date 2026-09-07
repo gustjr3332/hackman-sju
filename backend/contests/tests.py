@@ -234,6 +234,60 @@ class ContestStatusTransitionTests(ApiTestCase):
             self.contest.refresh_from_db()
             self.assertEqual(self.contest.status, next_status)
 
+    def test_organizer_can_move_status_backward(self):
+        """실수로 한 단계 넘겼거나 모집을 다시 열어야 할 때 되돌릴 수 있어야 한다."""
+        self.client.force_authenticate(self.organizer)
+        self.contest.status = Contest.Status.ONGOING
+        self.contest.save(update_fields=['status'])
+
+        res = self.client.patch(f'/api/contests/{self.contest.slug}/', {'status': 'recruiting'})
+        self.assertEqual(res.status_code, status.HTTP_200_OK, res.data)
+        self.contest.refresh_from_db()
+        self.assertEqual(self.contest.status, 'recruiting')
+
+    def test_organizer_can_skip_statuses_in_both_directions(self):
+        self.client.force_authenticate(self.organizer)
+        for target in ['closed', 'recruiting', 'judging', 'ongoing']:
+            res = self.client.patch(f'/api/contests/{self.contest.slug}/', {'status': target})
+            self.assertEqual(res.status_code, status.HTTP_200_OK, res.data)
+            self.contest.refresh_from_db()
+            self.assertEqual(self.contest.status, target)
+
+    def test_reverting_status_keeps_teams_and_scores(self):
+        """상태를 되돌려도 데이터는 남는다 — 상태 필드만 바뀐다."""
+        team = Team.objects.create(contest=self.contest, name='팀 A')
+        submission = Submission.objects.create(team=team, title='제출물')
+        judge = Judge.objects.create(contest=self.contest, user=self.organizer)
+        Score.objects.create(
+            submission=submission, judge=judge, round='preliminary', value=Decimal('7'),
+        )
+
+        self.client.force_authenticate(self.organizer)
+        self.contest.status = Contest.Status.JUDGING
+        self.contest.save(update_fields=['status'])
+        res = self.client.patch(f'/api/contests/{self.contest.slug}/', {'status': 'recruiting'})
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK, res.data)
+        self.assertTrue(Team.objects.filter(pk=team.pk).exists())
+        self.assertTrue(Submission.objects.filter(pk=submission.pk).exists())
+        self.assertEqual(Score.objects.count(), 1)
+
+    def test_reopening_recruiting_lets_teams_form_again(self):
+        """되돌리기의 목적 자체 — 진행중에 막혔던 팀 생성이 모집중으로 돌아오면 다시 열린다."""
+        self.contest.status = Contest.Status.ONGOING
+        self.contest.save(update_fields=['status'])
+
+        self.client.force_authenticate(self.participant)
+        res = self.client.post('/api/teams/', {'contest': self.contest.slug, 'name': '늦은 팀'})
+        self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
+
+        self.client.force_authenticate(self.organizer)
+        self.client.patch(f'/api/contests/{self.contest.slug}/', {'status': 'recruiting'})
+
+        self.client.force_authenticate(self.participant)
+        res = self.client.post('/api/teams/', {'contest': self.contest.slug, 'name': '늦은 팀'})
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+
     def test_non_organizer_cannot_change_status(self):
         self.client.force_authenticate(self.participant)
         res = self.client.patch(f'/api/contests/{self.contest.slug}/', {'status': 'closed'})
@@ -262,11 +316,36 @@ class StatusGatingTests(ApiTestCase):
         self.contest.status = value
         self.contest.save(update_fields=['status'])
 
-    def test_team_can_be_created_while_ongoing(self):
-        self.set_status(Contest.Status.ONGOING)
+    def test_team_can_be_created_while_recruiting(self):
         self.client.force_authenticate(self.participant)
         res = self.client.post('/api/teams/', {'contest': self.contest.slug, 'name': '팀 B'})
         self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+
+    def test_team_cannot_be_created_once_ongoing(self):
+        # 대회가 시작된 뒤 팀이 새로 생기면 발표 순서·심사 배정이 이미 정해진 뒤에 인원이 바뀐다.
+        self.set_status(Contest.Status.ONGOING)
+        self.client.force_authenticate(self.participant)
+        res = self.client.post('/api/teams/', {'contest': self.contest.slug, 'name': '팀 B'})
+        self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertIn('진행중', res.data['detail'])
+
+    def test_cannot_join_team_once_ongoing(self):
+        self.set_status(Contest.Status.ONGOING)
+        latecomer = User.objects.create_user('latecomer2', password='pw12345678')
+        self.client.force_authenticate(latecomer)
+        res = self.client.post(f'/api/teams/{self.team.id}/join/')
+        self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertFalse(self.team.participants.filter(user=latecomer).exists())
+
+    def test_submission_still_editable_while_ongoing(self):
+        # 팀 모집만 좁혔고 제출물은 그대로다 — 진행중이 곧 개발 시간이다.
+        submission = Submission.objects.create(team=self.team, title='초안')
+        self.set_status(Contest.Status.ONGOING)
+        self.client.force_authenticate(self.participant)
+        res = self.client.patch(f'/api/submissions/{submission.id}/', {'title': '진행중 수정'})
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        submission.refresh_from_db()
+        self.assertEqual(submission.title, '진행중 수정')
 
     def test_team_cannot_be_created_while_judging(self):
         self.set_status(Contest.Status.JUDGING)
@@ -454,6 +533,42 @@ class ContestListQueryCountTests(ApiTestCase):
         self.assertEqual(res.status_code, status.HTTP_200_OK)
         self.assertEqual(len(res.data), baseline + 4)
         self.assertTrue(all(entry['is_judge'] for entry in res.data))
+
+
+class ScoreboardQueryCountTests(ApiTestCase):
+    """스코어보드는 5초마다 접속자 수만큼 불린다 — 캐시 적중 시 쿼리가 늘어나면 안 된다."""
+
+    def setUp(self):
+        self.judge_user = User.objects.create_user('judge1', password='pw12345678')
+        self.contest = make_contest()
+        team = Team.objects.create(contest=self.contest, name='팀 A')
+        Submission.objects.create(team=team, title='제출물')
+        Judge.objects.create(contest=self.contest, user=self.judge_user)
+
+    def test_cache_hit_costs_one_query_for_a_judge(self):
+        """심사위원 여부는 get_object() 의 annotate 로 이미 나와 있다 — EXISTS 를 또 던지지 않는다.
+
+        캐시가 채워진 뒤 남는 쿼리는 대회 조회 하나뿐이다(테스트는 force_authenticate 라
+        사용자 로드 쿼리가 없다).
+        """
+        self.client.force_authenticate(self.judge_user)
+        self.client.get(f'/api/contests/{self.contest.slug}/scoreboard/')  # 캐시 채우기
+
+        with self.assertNumQueries(1):
+            res = self.client.get(f'/api/contests/{self.contest.slug}/scoreboard/')
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+
+    def test_judge_still_sees_final_round_through_the_annotation(self):
+        """쿼리를 줄이면서 심사위원 권한이 조용히 떨어지지 않았는지 확인한다."""
+        self.client.force_authenticate(self.judge_user)
+        res = self.client.get(f'/api/contests/{self.contest.slug}/scoreboard/')
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertTrue(any(entry['round'] == 'final' for entry in res.data))
+
+    def test_anonymous_viewer_still_gets_public_board_only(self):
+        res = self.client.get(f'/api/contests/{self.contest.slug}/scoreboard/')
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertFalse(any(entry['round'] == 'final' for entry in res.data))
 
 
 class TeamListQueryCountTests(ApiTestCase):
@@ -696,29 +811,28 @@ class ScoreboardPrivacyTests(ApiTestCase):
 
 
 class PresentationScheduleTests(ApiTestCase):
+    """발표는 시계에 맞춘 예정표가 아니라 운영자가 버튼을 눌러 시작하는 이벤트다."""
+
     def setUp(self):
         self.organizer = User.objects.create_user('organizer', password='pw12345678', is_staff=True)
         self.participant = User.objects.create_user('participant', password='pw12345678')
         self.contest = make_contest()
         self.team_no_submission = Team.objects.create(contest=self.contest, name='팀 나중')
         self.team_with_submission = Team.objects.create(contest=self.contest, name='팀 먼저')
+        self.team_with_submission.participants.create(user=self.participant)
         Submission.objects.create(team=self.team_with_submission, title='제출물')
 
     def test_organizer_can_assign_presentation_order(self):
         self.client.force_authenticate(self.organizer)
-        res = self.client.post(
-            f'/api/contests/{self.contest.slug}/assign_presentation_order/',
-            {'start_at': '2026-09-05T10:00:00Z'},
-        )
+        res = self.client.post(f'/api/contests/{self.contest.slug}/assign_presentation_order/')
         self.assertEqual(res.status_code, status.HTTP_200_OK, res.data)
-        self.contest.refresh_from_db()
-        self.assertIsNotNone(self.contest.presentation_start_at)
 
         self.team_with_submission.refresh_from_db()
         self.team_no_submission.refresh_from_db()
-        # 제출한 팀이 먼저, 미제출 팀은 뒤로.
+        # 제출한 팀이 먼저, 미제출 팀은 뒤로. 시작 시각은 여기서 정하지 않는다.
         self.assertEqual(self.team_with_submission.presentation_order, 1)
         self.assertEqual(self.team_no_submission.presentation_order, 2)
+        self.assertIsNone(self.team_with_submission.presentation_started_at)
 
     def test_non_organizer_cannot_assign_presentation_order(self):
         self.client.force_authenticate(self.participant)
@@ -727,27 +841,110 @@ class PresentationScheduleTests(ApiTestCase):
         self.team_with_submission.refresh_from_db()
         self.assertIsNone(self.team_with_submission.presentation_order)
 
-    def test_team_serializer_exposes_computed_slot_times(self):
+    def test_organizer_can_reorder_teams_freely(self):
         self.client.force_authenticate(self.organizer)
-        self.client.post(
-            f'/api/contests/{self.contest.slug}/assign_presentation_order/',
-            {'start_at': '2026-09-05T10:00:00Z'},
-        )
-        res = self.client.get(f'/api/teams/?contest={self.contest.slug}')
-        by_id = {t['id']: t for t in res.data}
-        first = by_id[self.team_with_submission.id]
-        second = by_id[self.team_no_submission.id]
-        self.assertEqual(first['presentation_starts_at'], '2026-09-05T10:00:00Z')
-        self.assertEqual(first['presentation_ends_at'], '2026-09-05T10:10:00Z')
-        self.assertEqual(second['presentation_starts_at'], '2026-09-05T10:10:00Z')
+        self.client.post(f'/api/contests/{self.contest.slug}/assign_presentation_order/')
 
-    def test_invalid_start_at_is_rejected(self):
+        res = self.client.patch(
+            f'/api/teams/{self.team_no_submission.id}/', {'presentation_order': 1}
+        )
+        self.assertEqual(res.status_code, status.HTTP_200_OK, res.data)
+        self.team_no_submission.refresh_from_db()
+        self.assertEqual(self.team_no_submission.presentation_order, 1)
+
+    def test_participant_cannot_change_own_presentation_order(self):
+        """팀 수정 권한은 참가자에게도 있으므로 발표 순서만 따로 잠근다."""
+        self.team_with_submission.presentation_order = 2
+        self.team_with_submission.save(update_fields=['presentation_order'])
+
+        self.client.force_authenticate(self.participant)
+        res = self.client.patch(
+            f'/api/teams/{self.team_with_submission.id}/', {'presentation_order': 1}
+        )
+        self.assertEqual(res.status_code, status.HTTP_200_OK, res.data)
+        self.team_with_submission.refresh_from_db()
+        self.assertEqual(self.team_with_submission.presentation_order, 2)
+
+    def test_organizer_can_set_per_team_minutes_within_range(self):
         self.client.force_authenticate(self.organizer)
-        res = self.client.post(
-            f'/api/contests/{self.contest.slug}/assign_presentation_order/',
-            {'start_at': 'not-a-date'},
+        res = self.client.patch(
+            f'/api/teams/{self.team_with_submission.id}/', {'presentation_minutes': 7}
+        )
+        self.assertEqual(res.status_code, status.HTTP_200_OK, res.data)
+        self.assertEqual(res.data['effective_presentation_minutes'], 7)
+
+    def test_per_team_minutes_over_thirty_is_rejected(self):
+        self.client.force_authenticate(self.organizer)
+        res = self.client.patch(
+            f'/api/teams/{self.team_with_submission.id}/', {'presentation_minutes': 31}
         )
         self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_team_without_own_minutes_falls_back_to_contest_default(self):
+        self.client.force_authenticate(self.organizer)
+        res = self.client.get(f'/api/teams/?contest={self.contest.slug}')
+        entry = next(t for t in res.data if t['id'] == self.team_with_submission.id)
+        self.assertIsNone(entry['presentation_minutes'])
+        self.assertEqual(entry['effective_presentation_minutes'], self.contest.presentation_minutes)
+
+    def test_starting_a_presentation_records_the_actual_time(self):
+        self.client.force_authenticate(self.organizer)
+        res = self.client.post(f'/api/teams/{self.team_with_submission.id}/start_presentation/')
+        self.assertEqual(res.status_code, status.HTTP_200_OK, res.data)
+        self.team_with_submission.refresh_from_db()
+        self.assertIsNotNone(self.team_with_submission.presentation_started_at)
+        self.assertIsNone(self.team_with_submission.presentation_ended_at)
+        # 종료 예정 시각은 시작 시각 + 그 팀의 발표 시간이다.
+        self.assertIsNotNone(res.data['presentation_due_at'])
+
+    def test_starting_a_team_ends_the_one_still_running(self):
+        """한 대회에서 두 팀이 동시에 발표할 수는 없다."""
+        self.client.force_authenticate(self.organizer)
+        self.client.post(f'/api/teams/{self.team_with_submission.id}/start_presentation/')
+        self.client.post(f'/api/teams/{self.team_no_submission.id}/start_presentation/')
+
+        self.team_with_submission.refresh_from_db()
+        self.team_no_submission.refresh_from_db()
+        self.assertIsNotNone(self.team_with_submission.presentation_ended_at)
+        self.assertIsNone(self.team_no_submission.presentation_ended_at)
+
+    def test_ended_presentation_stops_the_timer(self):
+        """끝난 팀은 due_at 이 null 이라 프론트 타이머가 돌지 않는다."""
+        self.client.force_authenticate(self.organizer)
+        self.client.post(f'/api/teams/{self.team_with_submission.id}/start_presentation/')
+        res = self.client.post(f'/api/teams/{self.team_with_submission.id}/end_presentation/')
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK, res.data)
+        self.assertIsNone(res.data['presentation_due_at'])
+        self.assertIsNotNone(res.data['presentation_ended_at'])
+
+    def test_no_team_running_means_no_timer_anywhere(self):
+        """팀 교체·쉬는 시간 — 아무도 시작하지 않았으면 모든 팀의 due_at 이 null 이다."""
+        self.client.force_authenticate(self.organizer)
+        self.client.post(f'/api/contests/{self.contest.slug}/assign_presentation_order/')
+        res = self.client.get(f'/api/teams/?contest={self.contest.slug}')
+        self.assertTrue(all(t['presentation_due_at'] is None for t in res.data))
+
+    def test_ending_a_presentation_that_never_started_is_rejected(self):
+        self.client.force_authenticate(self.organizer)
+        res = self.client.post(f'/api/teams/{self.team_with_submission.id}/end_presentation/')
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_organizer_can_reset_a_presentation_started_by_mistake(self):
+        self.client.force_authenticate(self.organizer)
+        self.client.post(f'/api/teams/{self.team_with_submission.id}/start_presentation/')
+        res = self.client.post(f'/api/teams/{self.team_with_submission.id}/reset_presentation/')
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK, res.data)
+        self.assertIsNone(res.data['presentation_started_at'])
+        self.assertIsNone(res.data['presentation_due_at'])
+
+    def test_participant_cannot_start_a_presentation(self):
+        self.client.force_authenticate(self.participant)
+        res = self.client.post(f'/api/teams/{self.team_with_submission.id}/start_presentation/')
+        self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
+        self.team_with_submission.refresh_from_db()
+        self.assertIsNone(self.team_with_submission.presentation_started_at)
 
 
 class AwardApiTests(ApiTestCase):
