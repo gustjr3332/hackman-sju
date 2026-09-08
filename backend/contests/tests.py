@@ -1300,7 +1300,7 @@ class ProfileApiTests(ApiTestCase):
 
     def test_llm_models_lists_only_configured_providers(self):
         self.client.force_authenticate(self.alice)
-        with self.settings(ANTHROPIC_API_KEY='k', OPENAI_API_KEY='', GOOGLE_API_KEY='', NVIDIA_API_KEY=''):
+        with self.settings(ANTHROPIC_API_KEY='k', OPENAI_API_KEY='', GOOGLE_API_KEY=''):
             res = self.client.get('/api/llm/models/')
         self.assertEqual(res.status_code, status.HTTP_200_OK)
         self.assertEqual([p['provider'] for p in res.data['providers']], ['anthropic'])
@@ -1308,7 +1308,7 @@ class ProfileApiTests(ApiTestCase):
     def test_llm_models_is_empty_without_keys(self):
         """키가 하나도 없으면 LLM 기능만 꺼지고 나머지는 동작해야 한다."""
         self.client.force_authenticate(self.alice)
-        with self.settings(ANTHROPIC_API_KEY='', OPENAI_API_KEY='', GOOGLE_API_KEY='', NVIDIA_API_KEY=''):
+        with self.settings(ANTHROPIC_API_KEY='', OPENAI_API_KEY='', GOOGLE_API_KEY=''):
             res = self.client.get('/api/llm/models/')
         self.assertEqual(res.data['providers'], [])
 
@@ -1316,7 +1316,7 @@ class ProfileApiTests(ApiTestCase):
         """추출 실패가 팀빌딩을 막으면 안 된다 — 400 이 아니라 실패 상태를 돌려준다."""
         Profile.objects.create(user=self.alice, intro='웹 프론트 좀 했습니다')
         self.client.force_authenticate(self.alice)
-        with self.settings(ANTHROPIC_API_KEY='', OPENAI_API_KEY='', GOOGLE_API_KEY='', NVIDIA_API_KEY=''):
+        with self.settings(ANTHROPIC_API_KEY='', OPENAI_API_KEY='', GOOGLE_API_KEY=''):
             res = self.client.post('/api/profile/extract/')
         self.assertEqual(res.status_code, status.HTTP_200_OK, res.data)
         self.assertEqual(res.data['extraction_status'], 'failed')
@@ -1420,7 +1420,7 @@ class TeamMatchingTests(ApiTestCase):
     def test_recommendations_work_without_any_llm_key(self):
         self._team_with('아무 팀', roles=['backend'])
         self.client.force_authenticate(self.solo)
-        with self.settings(ANTHROPIC_API_KEY='', OPENAI_API_KEY='', GOOGLE_API_KEY='', NVIDIA_API_KEY=''):
+        with self.settings(ANTHROPIC_API_KEY='', OPENAI_API_KEY='', GOOGLE_API_KEY=''):
             res = self.client.get(f'/api/contests/{self.contest.slug}/recommended_teams/')
         self.assertEqual(res.status_code, status.HTTP_200_OK)
         self.assertTrue(res.data['teams'])
