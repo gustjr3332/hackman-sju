@@ -146,6 +146,13 @@ GITHUB_TOKEN = os.getenv('GITHUB_TOKEN', '')
 # 연다. 캐시 적중이 rate limit 을 지키는 주된 수단이다.
 GITHUB_CACHE_SECONDS = int(os.getenv('GITHUB_CACHE_SECONDS', '1800'))
 
+# LLM 제공사 키. 셋 다 선택이고, 설정된 것만 모델 선택기에 노출된다(`contests/llm/base.py`).
+# 하나도 없으면 LLM 기능만 꺼지고 나머지는 그대로 동작한다 — 팀빌딩 추천 순위는 규칙 기반이라
+# 키 없이도 계산된다.
+ANTHROPIC_API_KEY = os.getenv('ANTHROPIC_API_KEY', '')
+OPENAI_API_KEY = os.getenv('OPENAI_API_KEY', '')
+GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY', '')
+
 
 # Password validation
 # https://docs.djangoproject.com/en/6.1/ref/settings/#auth-password-validators

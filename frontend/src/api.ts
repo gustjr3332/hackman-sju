@@ -5,12 +5,16 @@ import type {
   ContestInput,
   ContestStatus,
   Judge,
+  LlmProvider,
   Me,
+  Profile,
   Score,
   ScoreboardEntry,
   ScoreRound,
   Submission,
   Team,
+  TeamCandidate,
+  TeamRecommendation,
 } from './types';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000/api';
@@ -349,4 +353,42 @@ export function updateAward(id: number, title: string): Promise<Award> {
 
 export function deleteAward(id: number): Promise<void> {
   return request(`/awards/${id}/`, { method: 'DELETE' });
+}
+
+
+// ---------- 팀빌딩 (프로필 + 추천) ----------
+
+/** 내 프로필. 서버가 없으면 만들어서 돌려주므로 생성 호출이 따로 없다. */
+export function fetchMyProfile(): Promise<Profile> {
+  return request('/profile/');
+}
+
+export function updateMyProfile(data: Partial<Profile>): Promise<Profile> {
+  return request('/profile/', { method: 'PATCH', body: JSON.stringify(data) });
+}
+
+/**
+ * 자기소개 원문을 LLM 으로 구조화한다. 실패해도 예외가 아니라 `extraction_status: 'failed'`
+ * 인 프로필이 돌아온다 — 추출 실패가 팀빌딩을 막지 않는다.
+ */
+export function extractMyProfile(provider?: string, model?: string): Promise<Profile> {
+  return request('/profile/extract/', {
+    method: 'POST',
+    body: JSON.stringify({ provider, model }),
+  });
+}
+
+/** 키가 설정된 제공사만 돌아온다. 빈 배열이면 자동 정리 버튼을 숨긴다. */
+export function fetchLlmProviders(): Promise<{ providers: LlmProvider[] }> {
+  return request('/llm/models/');
+}
+
+/** 이 대회에서 나에게 맞는 팀 순위. 이미 팀이 있으면 빈 배열. */
+export function fetchRecommendedTeams(slug: string): Promise<{ teams: TeamRecommendation[] }> {
+  return request(`/contests/${slug}/recommended_teams/`);
+}
+
+/** 이 팀에 맞는, 아직 팀이 없는 사람 순위. 팀원과 운영자만 볼 수 있다. */
+export function fetchTeamCandidates(teamId: number): Promise<{ candidates: TeamCandidate[] }> {
+  return request(`/teams/${teamId}/candidates/`);
 }

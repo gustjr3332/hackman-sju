@@ -5,13 +5,18 @@ from django.conf import settings
 from django.core.cache import cache
 from django.db import IntegrityError, transaction
 from django.db.models import Avg, BooleanField, Case, Count, Exists, OuterRef, Prefetch, Value, When
+from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import generics, permissions, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
-from .models import Award, Contest, Judge, Participant, Score, Submission, Team
+from .llm import available_models
+from .matching import recommend_teams_for_user, recommend_users_for_team
+from .models import Award, Contest, Judge, Participant, Profile, Score, Submission, Team
+from .profile_extract import extract_profile
 from .permissions import (
     IsAssignedJudge,
     IsOrganizer,
@@ -24,6 +29,7 @@ from .serializers import (
     JudgeSerializer,
     MeSerializer,
     ParticipantSerializer,
+    ProfileSerializer,
     RegisterSerializer,
     ScoreboardEntrySerializer,
     ScoreSerializer,
@@ -450,3 +456,79 @@ class AwardViewSet(viewsets.ModelViewSet):
         if contest_slug:
             queryset = queryset.filter(contest__slug=contest_slug)
         return queryset
+
+
+# ---------- 팀빌딩 (프로필 + 추천) ----------
+
+
+class MyProfileView(generics.RetrieveUpdateAPIView):
+    """내 팀빌딩 프로필. 없으면 만들어서 돌려준다(참가자가 먼저 생성할 일이 없게).
+
+    남의 프로필은 여기로 볼 수 없다. 추천 응답에 필요한 만큼만 따로 노출된다.
+    """
+
+    serializer_class = ProfileSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_object(self):
+        profile, _ = Profile.objects.get_or_create(user=self.request.user)
+        return profile
+
+    def perform_update(self, serializer):
+        profile = serializer.save()
+        # 자기소개 원문이 바뀌면 기존 추출 결과는 더 이상 그 원문에서 나온 것이 아니다.
+        # 지우지는 않는다 — 재추출 전까지는 옛 태그라도 있는 편이 추천에 낫다.
+        if 'intro' in serializer.validated_data:
+            profile.extraction_status = Profile.ExtractionStatus.PENDING
+            profile.save(update_fields=['extraction_status'])
+
+
+class ProfileExtractView(APIView):
+    """자기소개 원문을 LLM 으로 구조화한다 (본인만).
+
+    참가자당 1회짜리 짧은 호출이라 동기로 처리한다. 실패해도 400 을 내지 않고 프로필을 그대로
+    돌려준다 — 추출 실패가 팀빌딩을 막으면 안 되고, 참가자가 태그를 직접 채울 수 있다.
+    """
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        profile, _ = Profile.objects.get_or_create(user=request.user)
+        profile = extract_profile(
+            profile,
+            provider=request.data.get('provider') or None,
+            model=request.data.get('model') or None,
+        )
+        return Response(ProfileSerializer(profile).data)
+
+
+class LlmModelsView(APIView):
+    """키가 설정된 제공사 목록. 프론트의 모델 선택기가 이걸 그대로 쓴다."""
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        return Response({'providers': available_models()})
+
+
+class TeamRecommendationView(APIView):
+    """이 대회에서 나에게 맞는 팀 순위. 순위는 전부 규칙 기반이라 LLM 키가 없어도 동작한다."""
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, slug):
+        contest = get_object_or_404(Contest, slug=slug)
+        return Response({'teams': recommend_teams_for_user(contest, request.user)})
+
+
+class TeamCandidateView(APIView):
+    """이 팀에 맞는, 아직 팀이 없는 사람 순위. 팀원과 운영자만 본다."""
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, pk):
+        team = get_object_or_404(Team.objects.select_related('contest'), pk=pk)
+        is_member = Participant.objects.filter(team=team, user=request.user).exists()
+        if not (request.user.is_staff or is_member):
+            raise PermissionDenied('이 팀의 참가자만 후보를 볼 수 있습니다.')
+        return Response({'candidates': recommend_users_for_team(team.contest, team)})

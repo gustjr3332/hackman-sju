@@ -112,3 +112,46 @@ export interface Award {
   rank: number;
   title: string;
 }
+
+
+/** 팀빌딩 프로필. 계정에 하나만 있고, 대회를 옮겨 다녀도 그대로 쓴다. */
+export interface Profile {
+  username: string;
+  /** 참가자가 직접 쓴 자유 서술. 이것이 원본이고 나머지 태그는 여기서 파생된다. */
+  intro: string;
+  skills: string[];
+  interests: string[];
+  roles: string[];
+  level: '' | 'beginner' | 'intermediate' | 'advanced';
+  looking_for_team: boolean;
+  extraction_status: 'empty' | 'pending' | 'done' | 'failed';
+  extraction_error: string;
+  extracted_by: string;
+  extracted_at: string | null;
+  updated_at: string;
+}
+
+/** 키가 설정된 LLM 제공사. 하나도 없으면 자동 정리 기능만 꺼지고 추천은 그대로 동작한다. */
+export interface LlmProvider {
+  provider: string;
+  label: string;
+  default_model: string;
+}
+
+/** 나에게 맞는 팀 한 건. score 는 0~100, reasons 는 왜 그 순위인지. */
+export interface TeamRecommendation {
+  team_id: number;
+  team_name: string;
+  member_count: number;
+  score: number;
+  reasons: string[];
+}
+
+/** 이 팀에 맞는 후보 한 명. */
+export interface TeamCandidate {
+  username: string;
+  skills: string[];
+  roles: string[];
+  score: number;
+  reasons: string[];
+}

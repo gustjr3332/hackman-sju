@@ -1770,3 +1770,209 @@ body {
   color: var(--muted);
   cursor: not-allowed;
 }
+
+
+/* ---------- 팀빌딩 (프로필 + 추천) ---------- */
+
+/* 접힌 상태가 기본이다 — 이미 팀이 있는 사람에게는 자리만 차지하는 영역이다. */
+.profile-panel.collapsed {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.profile-toggle {
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink);
+  border-radius: 2px;
+  padding: 8px 14px;
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.profile-panel {
+  margin-bottom: 16px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--paper-raised);
+}
+
+.profile-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.profile-head .section-heading {
+  margin: 0;
+}
+
+.profile-head button {
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--muted);
+  border-radius: 2px;
+  padding: 5px 10px;
+  font: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.profile-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 10px;
+  font-size: 0.85rem;
+}
+
+.profile-field textarea,
+.profile-field input {
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  resize: vertical;
+}
+
+.profile-autofill {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.profile-autofill button {
+  background: var(--ink);
+  color: var(--paper);
+  border: none;
+  border-radius: 2px;
+  padding: 8px 14px;
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.profile-autofill button:disabled {
+  background: var(--line);
+  color: var(--muted);
+  cursor: not-allowed;
+}
+
+.profile-autofill select {
+  padding: 7px;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.85rem;
+}
+
+.profile-roles {
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  padding: 8px 10px;
+  margin: 0 0 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.profile-roles legend {
+  font-size: 0.8rem;
+  color: var(--muted);
+  padding: 0 4px;
+}
+
+.profile-roles label,
+.profile-looking {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.85rem;
+}
+
+.profile-looking {
+  margin-bottom: 10px;
+}
+
+.profile-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.profile-actions button {
+  background: var(--ink);
+  color: var(--paper);
+  border: none;
+  border-radius: 2px;
+  padding: 9px 18px;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.recommend-panel {
+  margin-bottom: 16px;
+}
+
+.recommend-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  border-top: 1px solid var(--line);
+}
+
+.recommend-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 4px;
+  border-bottom: 1px solid var(--line);
+}
+
+/* 적합도는 순위의 근거이지 점수가 아니다 — 크게 키우지 않는다. */
+.recommend-score {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  min-width: 2.2em;
+  text-align: right;
+  color: var(--live);
+}
+
+.recommend-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.recommend-reasons {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.recommend-row button {
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink);
+  border-radius: 2px;
+  padding: 7px 14px;
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+}

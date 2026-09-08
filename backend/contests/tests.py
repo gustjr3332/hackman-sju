@@ -12,7 +12,7 @@ from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APITestCase
 
-from .models import Award, Contest, Judge, Participant, Score, Submission, Team
+from .models import Award, Contest, Judge, Participant, Profile, Score, Submission, Team
 
 User = get_user_model()
 
@@ -1212,3 +1212,215 @@ class ScoreboardCorsTests(ApiTestCase):
             )
         self.assertEqual(second.status_code, status.HTTP_304_NOT_MODIFIED)
         self.assertEqual(second.headers.get('access-control-allow-origin'), self.ORIGIN)
+
+
+class ProfileApiTests(ApiTestCase):
+    """팀빌딩 프로필. 원문과 추출 결과를 둘 다 보관하고, 본인만 읽고 쓴다."""
+
+    def setUp(self):
+        self.alice = User.objects.create_user('alice', password='pw12345678')
+        self.bob = User.objects.create_user('bob', password='pw12345678')
+
+    def test_profile_is_created_on_first_read(self):
+        """참가자가 먼저 생성할 일이 없게 한다."""
+        self.client.force_authenticate(self.alice)
+        res = self.client.get('/api/profile/')
+        self.assertEqual(res.status_code, status.HTTP_200_OK, res.data)
+        self.assertEqual(res.data['username'], 'alice')
+        self.assertEqual(res.data['extraction_status'], 'empty')
+
+    def test_anonymous_cannot_read_profile(self):
+        res = self.client.get('/api/profile/')
+        self.assertEqual(res.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_participant_can_edit_extracted_tags(self):
+        """모델이 뽑은 것을 사실로 굳히지 않는다 — 참가자가 고칠 수 있어야 한다."""
+        self.client.force_authenticate(self.alice)
+        res = self.client.patch('/api/profile/', {
+            'skills': ['react', 'python'], 'roles': ['frontend'], 'level': 'intermediate',
+        }, format='json')
+        self.assertEqual(res.status_code, status.HTTP_200_OK, res.data)
+        self.assertEqual(res.data['skills'], ['react', 'python'])
+        self.assertEqual(res.data['level'], 'intermediate')
+
+    def test_changing_intro_marks_extraction_stale(self):
+        """원문이 바뀌면 기존 추출 결과는 그 원문에서 나온 것이 아니게 된다."""
+        Profile.objects.create(
+            user=self.alice, intro='예전 소개', skills=['react'],
+            extraction_status=Profile.ExtractionStatus.DONE,
+        )
+        self.client.force_authenticate(self.alice)
+        res = self.client.patch('/api/profile/', {'intro': '새로 쓴 소개'}, format='json')
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK, res.data)
+        self.assertEqual(res.data['extraction_status'], 'pending')
+        # 지우지는 않는다 — 재추출 전까지 옛 태그라도 있는 편이 추천에 낫다.
+        self.assertEqual(res.data['skills'], ['react'])
+
+    def test_profile_endpoint_only_returns_own_profile(self):
+        Profile.objects.create(user=self.bob, intro='밥의 소개', skills=['go'])
+        self.client.force_authenticate(self.alice)
+        res = self.client.get('/api/profile/')
+        self.assertEqual(res.data['username'], 'alice')
+        self.assertEqual(res.data['skills'], [])
+
+    def test_llm_models_lists_only_configured_providers(self):
+        self.client.force_authenticate(self.alice)
+        with self.settings(ANTHROPIC_API_KEY='k', OPENAI_API_KEY='', GOOGLE_API_KEY=''):
+            res = self.client.get('/api/llm/models/')
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual([p['provider'] for p in res.data['providers']], ['anthropic'])
+
+    def test_llm_models_is_empty_without_keys(self):
+        """키가 하나도 없으면 LLM 기능만 꺼지고 나머지는 동작해야 한다."""
+        self.client.force_authenticate(self.alice)
+        with self.settings(ANTHROPIC_API_KEY='', OPENAI_API_KEY='', GOOGLE_API_KEY=''):
+            res = self.client.get('/api/llm/models/')
+        self.assertEqual(res.data['providers'], [])
+
+    def test_extract_without_any_key_fails_softly(self):
+        """추출 실패가 팀빌딩을 막으면 안 된다 — 400 이 아니라 실패 상태를 돌려준다."""
+        Profile.objects.create(user=self.alice, intro='웹 프론트 좀 했습니다')
+        self.client.force_authenticate(self.alice)
+        with self.settings(ANTHROPIC_API_KEY='', OPENAI_API_KEY='', GOOGLE_API_KEY=''):
+            res = self.client.post('/api/profile/extract/')
+        self.assertEqual(res.status_code, status.HTTP_200_OK, res.data)
+        self.assertEqual(res.data['extraction_status'], 'failed')
+        self.assertTrue(res.data['extraction_error'])
+
+    def test_extract_with_empty_intro_does_not_call_the_model(self):
+        self.client.force_authenticate(self.alice)
+        with mock.patch('contests.profile_extract.complete') as called:
+            res = self.client.post('/api/profile/extract/')
+        called.assert_not_called()
+        self.assertEqual(res.data['extraction_status'], 'empty')
+
+    def test_extract_fills_tags_from_free_text(self):
+        Profile.objects.create(user=self.alice, intro='웹 프론트 좀 했고 파이썬도 조금 압니다')
+        self.client.force_authenticate(self.alice)
+
+        fake = mock.Mock(
+            text='```json\n{"skills":["react","python"],"roles":["frontend"],'
+                 '"interests":["교육"],"level":"beginner"}\n```',
+            model='claude-opus-5',
+        )
+        with mock.patch('contests.profile_extract.complete', return_value=fake):
+            res = self.client.post('/api/profile/extract/')
+
+        self.assertEqual(res.data['extraction_status'], 'done')
+        self.assertEqual(res.data['skills'], ['react', 'python'])
+        self.assertEqual(res.data['roles'], ['frontend'])
+        self.assertEqual(res.data['level'], 'beginner')
+
+    def test_extract_drops_roles_the_model_invented(self):
+        """모델이 목록 밖의 역할을 지어내는 일이 있어 서버에서 한 번 더 거른다."""
+        Profile.objects.create(user=self.alice, intro='뭐든 합니다')
+        self.client.force_authenticate(self.alice)
+
+        fake = mock.Mock(
+            text='{"skills":[],"roles":["frontend","우주비행사"],"interests":[],"level":"wizard"}',
+            model='m',
+        )
+        with mock.patch('contests.profile_extract.complete', return_value=fake):
+            res = self.client.post('/api/profile/extract/')
+
+        self.assertEqual(res.data['roles'], ['frontend'])
+        self.assertEqual(res.data['level'], '')  # 알 수 없는 값은 비운다
+
+
+class TeamMatchingTests(ApiTestCase):
+    """추천 순위는 전부 규칙 기반 — LLM 키 없이 동작하고 결과가 결정적이어야 한다."""
+
+    def setUp(self):
+        self.contest = make_contest()
+        self.solo = User.objects.create_user('solo', password='pw12345678')
+        Profile.objects.create(
+            user=self.solo, skills=['react'], roles=['frontend'], interests=['교육'],
+        )
+
+    def _team_with(self, name, **profile_kwargs):
+        team = Team.objects.create(contest=self.contest, name=name)
+        member = User.objects.create_user(f'member-{name}', password='pw12345678')
+        Profile.objects.create(user=member, **profile_kwargs)
+        team.participants.create(user=member)
+        return team
+
+    def test_team_missing_my_role_ranks_above_one_that_has_it(self):
+        """빈 역할을 채우는 것이 팀 구성에서 가장 값어치가 크다."""
+        needs_frontend = self._team_with('백엔드뿐', roles=['backend'], skills=['django'])
+        already_frontend = self._team_with('프론트있음', roles=['frontend'], skills=['react'])
+
+        self.client.force_authenticate(self.solo)
+        res = self.client.get(f'/api/contests/{self.contest.slug}/recommended_teams/')
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK, res.data)
+        order = [t['team_name'] for t in res.data['teams']]
+        self.assertLess(order.index(needs_frontend.name), order.index(already_frontend.name))
+
+    def test_reason_explains_the_ranking(self):
+        """왜 그 순서인지 설명할 수 있어야 한다 — 운영자가 답할 수 있어야 하기 때문."""
+        self._team_with('백엔드뿐', roles=['backend'])
+        self.client.force_authenticate(self.solo)
+        res = self.client.get(f'/api/contests/{self.contest.slug}/recommended_teams/')
+        self.assertTrue(any(t['reasons'] for t in res.data['teams']))
+
+    def test_user_already_on_a_team_gets_no_recommendations(self):
+        team = Team.objects.create(contest=self.contest, name='내 팀')
+        team.participants.create(user=self.solo)
+
+        self.client.force_authenticate(self.solo)
+        res = self.client.get(f'/api/contests/{self.contest.slug}/recommended_teams/')
+        self.assertEqual(res.data['teams'], [])
+
+    def test_full_teams_are_not_recommended(self):
+        team = Team.objects.create(contest=self.contest, name='꽉 찬 팀')
+        for i in range(4):
+            u = User.objects.create_user(f'full{i}', password='pw12345678')
+            Profile.objects.create(user=u)
+            team.participants.create(user=u)
+
+        self.client.force_authenticate(self.solo)
+        res = self.client.get(f'/api/contests/{self.contest.slug}/recommended_teams/')
+        self.assertEqual([t['team_name'] for t in res.data['teams']], [])
+
+    def test_recommendations_work_without_any_llm_key(self):
+        self._team_with('아무 팀', roles=['backend'])
+        self.client.force_authenticate(self.solo)
+        with self.settings(ANTHROPIC_API_KEY='', OPENAI_API_KEY='', GOOGLE_API_KEY=''):
+            res = self.client.get(f'/api/contests/{self.contest.slug}/recommended_teams/')
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertTrue(res.data['teams'])
+
+    def test_candidates_exclude_people_who_already_have_a_team(self):
+        team = self._team_with('구인 팀', roles=['backend'])
+        taken = User.objects.create_user('taken', password='pw12345678')
+        Profile.objects.create(user=taken, roles=['frontend'])
+        Team.objects.create(contest=self.contest, name='다른 팀').participants.create(user=taken)
+
+        self.client.force_authenticate(team.participants.first().user)
+        res = self.client.get(f'/api/teams/{team.id}/candidates/')
+
+        names = [c['username'] for c in res.data['candidates']]
+        self.assertIn('solo', names)
+        self.assertNotIn('taken', names)
+
+    def test_outsider_cannot_see_team_candidates(self):
+        team = self._team_with('남의 팀', roles=['backend'])
+        self.client.force_authenticate(self.solo)
+        res = self.client.get(f'/api/teams/{team.id}/candidates/')
+        self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_organizer_can_see_team_candidates(self):
+        team = self._team_with('어떤 팀', roles=['backend'])
+        organizer = User.objects.create_user('org', password='pw12345678', is_staff=True)
+        self.client.force_authenticate(organizer)
+        res = self.client.get(f'/api/teams/{team.id}/candidates/')
+        self.assertEqual(res.status_code, status.HTTP_200_OK, res.data)
+
+    def test_candidates_respect_looking_for_team_flag(self):
+        team = self._team_with('구인 팀', roles=['backend'])
+        Profile.objects.filter(user=self.solo).update(looking_for_team=False)
+
+        self.client.force_authenticate(team.participants.first().user)
+        res = self.client.get(f'/api/teams/{team.id}/candidates/')
+        self.assertNotIn('solo', [c['username'] for c in res.data['candidates']])

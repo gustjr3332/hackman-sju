@@ -4,7 +4,7 @@ from django.contrib.auth import get_user_model
 from rest_framework import serializers
 from rest_framework.validators import UniqueTogetherValidator
 
-from .models import Award, Contest, Judge, Participant, Score, Submission, Team
+from .models import Award, Contest, Judge, Participant, Profile, Score, Submission, Team
 
 User = get_user_model()
 
@@ -197,4 +197,26 @@ class AwardSerializer(serializers.ModelSerializer):
                 fields=['contest', 'rank'],
                 message='이미 이 등수에 배정된 상이 있습니다.',
             ),
+        ]
+
+
+class ProfileSerializer(serializers.ModelSerializer):
+    """팀빌딩 프로필. 참가자는 자기 것만 읽고 쓴다.
+
+    추출 결과(skills/roles/interests/level)도 쓰기 가능하다 — 모델이 뽑은 것을 사실로 굳히지
+    않고 참가자가 고칠 수 있어야 하기 때문이다. 추출 상태는 서버가 정하므로 읽기 전용이다.
+    """
+
+    username = serializers.CharField(source='user.username', read_only=True)
+
+    class Meta:
+        model = Profile
+        fields = [
+            'username', 'intro', 'skills', 'interests', 'roles', 'level',
+            'looking_for_team', 'extraction_status', 'extraction_error',
+            'extracted_by', 'extracted_at', 'updated_at',
+        ]
+        read_only_fields = [
+            'extraction_status', 'extraction_error', 'extracted_by',
+            'extracted_at', 'updated_at',
         ]

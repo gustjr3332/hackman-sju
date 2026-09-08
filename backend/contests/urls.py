@@ -6,8 +6,13 @@ from .views import (
     AwardViewSet,
     ContestViewSet,
     JudgeViewSet,
+    LlmModelsView,
+    MyProfileView,
+    ProfileExtractView,
     ScoreViewSet,
     SubmissionViewSet,
+    TeamCandidateView,
+    TeamRecommendationView,
     TeamViewSet,
 )
 
@@ -26,4 +31,14 @@ urlpatterns = router.urls + [
         GithubProxyView.as_view(),
         name='github-proxy',
     ),
+    # 팀빌딩: 프로필은 계정에 하나, 추천은 대회별로 계산한다.
+    path('profile/', MyProfileView.as_view(), name='my-profile'),
+    path('profile/extract/', ProfileExtractView.as_view(), name='profile-extract'),
+    path('llm/models/', LlmModelsView.as_view(), name='llm-models'),
+    path(
+        'contests/<slug:slug>/recommended_teams/',
+        TeamRecommendationView.as_view(),
+        name='recommended-teams',
+    ),
+    path('teams/<int:pk>/candidates/', TeamCandidateView.as_view(), name='team-candidates'),
 ]

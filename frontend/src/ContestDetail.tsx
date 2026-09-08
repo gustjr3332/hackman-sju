@@ -18,6 +18,8 @@ import { AwardCeremony } from './AwardCeremony';
 import { CountdownTimer } from './CountdownTimer';
 import { ROUND_LABEL, ROUNDS, STATUS_HINT, STATUS_LABEL, STATUS_ORDER } from './labels';
 import { PresentationSchedule } from './PresentationSchedule';
+import { ProfilePanel } from './ProfilePanel';
+import { TeamRecommendations } from './TeamRecommendations';
 import { canFormTeams, canScore, canSubmit, isLive } from './rules';
 import { SubmissionReviewPanel } from './SubmissionReview';
 import type {
@@ -238,17 +240,22 @@ export function ContestDetail({
         <ScoreboardTable entries={visibleEntries} />
       </div>
 
+      {/* 팀빌딩은 모집중에만 열린다. 혼자 온 사람이 여기서 팀을 찾는 것이 이 묶음의 목적이다. */}
       {username && canFormTeams(contest.status) && (
-        <form className="team-form" onSubmit={handleCreateTeam}>
-          <input
-            type="text"
-            placeholder="새 팀 이름"
-            value={newTeamName}
-            onChange={(e) => setNewTeamName(e.target.value)}
-            required
-          />
-          <button type="submit">팀 만들기</button>
-        </form>
+        <>
+          <ProfilePanel />
+          <TeamRecommendations contestSlug={contest.slug} onJoined={refreshLive} />
+          <form className="team-form" onSubmit={handleCreateTeam}>
+            <input
+              type="text"
+              placeholder="새 팀 이름"
+              value={newTeamName}
+              onChange={(e) => setNewTeamName(e.target.value)}
+              required
+            />
+            <button type="submit">팀 만들기</button>
+          </form>
+        </>
       )}
       {status && <p className="form-error">{status}</p>}
 
