@@ -164,6 +164,8 @@ class Profile(models.Model):
     )
     # 참가자가 직접 쓴 원문. 이것이 사실의 원본이고 나머지는 여기서 파생된다.
     intro = models.TextField(blank=True)
+    # 개인 GitHub 주소. 태그만으로는 안 보이는 실제 결과물을 팀이 직접 확인하는 통로다.
+    github_url = models.URLField(blank=True)
     # 추출 결과. 참가자가 화면에서 직접 고칠 수 있어야 하므로 읽기 전용이 아니다.
     skills = models.JSONField(default=list, blank=True)
     interests = models.JSONField(default=list, blank=True)

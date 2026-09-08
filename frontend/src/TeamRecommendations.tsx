@@ -6,6 +6,11 @@ interface TeamRecommendationsProps {
   contestSlug: string;
   /** 팀에 들어간 뒤 상위 화면이 팀 목록을 다시 받도록. */
   onJoined: () => void;
+  /**
+   * 프로필이 바뀔 때마다 올라가는 값. 추천은 프로필을 기준으로 계산되므로, 바로 위에서
+   * 태그를 고치거나 자동 정리를 돌렸는데 아래 순위가 그대로면 고장으로 보인다.
+   */
+  profileVersion: number;
 }
 
 /**
@@ -15,7 +20,11 @@ interface TeamRecommendationsProps {
  * 사람이 한다**: 왜 이 순서인지(`reasons`)를 함께 보여주고, 들어가는 것은 참가자가 직접 누른다.
  * 이미 팀이 있거나 추천할 팀이 없으면 아무것도 그리지 않는다.
  */
-export function TeamRecommendations({ contestSlug, onJoined }: TeamRecommendationsProps) {
+export function TeamRecommendations({
+  contestSlug,
+  onJoined,
+  profileVersion,
+}: TeamRecommendationsProps) {
   const [teams, setTeams] = useState<TeamRecommendation[]>([]);
   const [busyId, setBusyId] = useState<number | null>(null);
   const [error, setError] = useState('');
@@ -24,7 +33,8 @@ export function TeamRecommendations({ contestSlug, onJoined }: TeamRecommendatio
     fetchRecommendedTeams(contestSlug)
       .then(({ teams: list }) => setTeams(list))
       .catch(() => setTeams([]));
-  }, [contestSlug]);
+    // profileVersion 은 값을 쓰지는 않고 프로필이 바뀌면 다시 부르기 위한 의존성이다.
+  }, [contestSlug, profileVersion]);
 
   useEffect(load, [load]);
 

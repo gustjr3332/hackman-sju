@@ -152,6 +152,8 @@ GITHUB_CACHE_SECONDS = int(os.getenv('GITHUB_CACHE_SECONDS', '1800'))
 ANTHROPIC_API_KEY = os.getenv('ANTHROPIC_API_KEY', '')
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY', '')
 GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY', '')
+# NVIDIA build (OpenAI 호환 엔드포인트).
+NVIDIA_API_KEY = os.getenv('NVIDIA_API_KEY', '')
 
 
 # Password validation

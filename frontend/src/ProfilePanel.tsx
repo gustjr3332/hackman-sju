@@ -9,7 +9,7 @@ const ROLE_LABEL: Record<string, string> = {
   design: '디자인',
   data: '데이터',
   planning: '기획',
-  devops: '인프라',
+  ai: 'AI',
 };
 
 const LEVEL_LABEL: Record<string, string> = {
@@ -24,6 +24,11 @@ function toTags(text: string): string[] {
   return [...new Set(text.split(',').map((t) => t.trim().toLowerCase()).filter(Boolean))];
 }
 
+interface ProfilePanelProps {
+  /** 프로필이 저장·정리될 때마다 알린다 — 추천이 이 프로필을 기준으로 계산되기 때문이다. */
+  onChanged: () => void;
+}
+
 /**
  * 팀빌딩 프로필 편집기.
  *
@@ -31,13 +36,14 @@ function toTags(text: string): string[] {
  * 채워주기만 하고, **결과는 참가자가 그대로 고칠 수 있다** — 모델이 정한 것을 사실로 굳히지
  * 않는다. LLM 키가 하나도 없으면 자동 정리 버튼만 사라지고 나머지는 그대로 쓴다.
  */
-export function ProfilePanel() {
+export function ProfilePanel({ onChanged }: ProfilePanelProps) {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [providers, setProviders] = useState<LlmProvider[]>([]);
   const [provider, setProvider] = useState('');
   const [intro, setIntro] = useState('');
   const [skillsText, setSkillsText] = useState('');
   const [interestsText, setInterestsText] = useState('');
+  const [githubUrl, setGithubUrl] = useState('');
   const [roles, setRoles] = useState<string[]>([]);
   const [status, setStatus] = useState('');
   const [busy, setBusy] = useState(false);
@@ -46,6 +52,7 @@ export function ProfilePanel() {
   function apply(next: Profile) {
     setProfile(next);
     setIntro(next.intro);
+    setGithubUrl(next.github_url);
     setSkillsText(next.skills.join(', '));
     setInterestsText(next.interests.join(', '));
     setRoles(next.roles);
@@ -69,12 +76,14 @@ export function ProfilePanel() {
       apply(
         await updateMyProfile({
           intro,
+          github_url: githubUrl.trim(),
           skills: toTags(skillsText),
           interests: toTags(interestsText),
           roles,
           looking_for_team: profile?.looking_for_team ?? true,
         })
       );
+      onChanged();
       setStatus('저장했습니다');
     } catch (err) {
       setStatus(err instanceof Error ? err.message : '저장에 실패했습니다');
@@ -91,6 +100,7 @@ export function ProfilePanel() {
       await updateMyProfile({ intro });
       const next = await extractMyProfile(provider || undefined);
       apply(next);
+      onChanged();
       setStatus(
         next.extraction_status === 'done'
           ? '자동으로 정리했습니다 — 틀린 부분은 직접 고치세요'
@@ -106,6 +116,7 @@ export function ProfilePanel() {
   async function toggleLooking() {
     if (!profile) return;
     apply(await updateMyProfile({ looking_for_team: !profile.looking_for_team }));
+    onChanged();
   }
 
   if (!profile) return null;
@@ -141,6 +152,17 @@ export function ProfilePanel() {
           onChange={(e) => setIntro(e.target.value)}
           rows={4}
           placeholder="예) 웹 프론트 좀 했고 파이썬도 조금 압니다. 디자인도 관심 있어요."
+        />
+      </label>
+
+      <label className="profile-field">
+        <span>GitHub 주소 (선택)</span>
+        <input
+          type="url"
+          value={githubUrl}
+          onChange={(e) => setGithubUrl(e.target.value)}
+          placeholder="https://github.com/아이디"
+          autoComplete="off"
         />
       </label>
 

@@ -15,7 +15,7 @@ from .models import Profile
 
 # 태그를 정해진 목록에 맞춘다. 자유 문자열이면 "React"/"리액트"/"react.js" 가 다 다른 태그가
 # 되어 매칭이 조용히 망가진다. 목록에 없는 것은 other_skills 로 따로 받아 버리지 않는다.
-KNOWN_ROLES = ['frontend', 'backend', 'mobile', 'design', 'data', 'planning', 'devops']
+KNOWN_ROLES = ['frontend', 'backend', 'mobile', 'design', 'data', 'planning', 'ai']
 
 PROMPT = """다음은 해커톤 참가자가 자기소개로 쓴 글이다. 팀빌딩에 쓸 정보만 뽑아라.
 

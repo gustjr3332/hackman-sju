@@ -9,7 +9,7 @@ const ROLE_LABEL: Record<string, string> = {
   design: '디자인',
   data: '데이터',
   planning: '기획',
-  devops: '인프라',
+  ai: 'AI',
 };
 
 interface TeamCandidatesProps {
@@ -68,7 +68,17 @@ export function TeamCandidates({ teamId }: TeamCandidatesProps) {
             <li key={c.username} className="candidate-row">
               <span className="candidate-score">{Math.round(c.score)}</span>
               <span className="candidate-main">
-                <strong>{c.username}</strong>
+                <strong>
+                  {c.username}
+                  {c.github_url && (
+                    <>
+                      {' '}
+                      <a href={c.github_url} target="_blank" rel="noreferrer">
+                        GitHub
+                      </a>
+                    </>
+                  )}
+                </strong>
                 <span className="candidate-tags">
                   {[
                     c.roles.map((r) => ROLE_LABEL[r] ?? r).join(', '),

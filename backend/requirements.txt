@@ -10,3 +10,10 @@ python-dotenv==1.2.3
 sqlparse==0.6.0
 tzdata==2026.3
 whitenoise==6.12.0
+
+# LLM 제공사 SDK. 키가 설정된 제공사만 실제로 쓰이고, import 는 호출 시점까지 미룬다
+# (contests/llm/base.py) - 안 쓰는 제공사 때문에 콜드 스타트가 늘지 않게 한다.
+# openai 패키지는 OpenAI 와 NVIDIA build(OpenAI 호환) 양쪽에서 쓴다.
+# anthropic 은 아직 키가 없어 넣지 않았다 - 쓸 때 추가한다.
+google-genai==2.22.0
+openai==3.8.0

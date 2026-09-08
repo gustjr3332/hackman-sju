@@ -119,6 +119,8 @@ export interface Profile {
   username: string;
   /** 참가자가 직접 쓴 자유 서술. 이것이 원본이고 나머지 태그는 여기서 파생된다. */
   intro: string;
+  /** 개인 GitHub 주소. 태그만으로 안 보이는 실제 결과물을 팀이 직접 확인하는 통로. */
+  github_url: string;
   skills: string[];
   interests: string[];
   roles: string[];
@@ -152,6 +154,8 @@ export interface TeamCandidate {
   username: string;
   skills: string[];
   roles: string[];
+  /** 본인이 적었을 때만 값이 있다. 팀이 실제 결과물을 확인하는 통로. */
+  github_url: string;
   score: number;
   reasons: string[];
 }

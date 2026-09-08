@@ -38,7 +38,16 @@ PROVIDERS = {
     'google': {
         'label': 'Google',
         'key_setting': 'GOOGLE_API_KEY',
-        'default_model': 'gemini-3-pro',
+        # 무료 등급 키는 pro 계열 quota 가 0 이라 429 가 난다. 프로필 추출은 짧은 글에서
+        # 태그를 뽑는 일이라 flash 로 충분하고, 무료 등급에서도 실제로 동작한다.
+        'default_model': 'gemini-3.5-flash',
+    },
+    'nvidia': {
+        'label': 'NVIDIA',
+        'key_setting': 'NVIDIA_API_KEY',
+        # NVIDIA build 는 OpenAI 호환 API 라 openai SDK 를 base_url 만 바꿔 그대로 쓴다.
+        'default_model': 'deepseek-ai/deepseek-v4-flash-0731',
+        'base_url': 'https://integrate.api.nvidia.com/v1',
     },
 }
 
@@ -76,8 +85,11 @@ def complete(prompt, provider=None, model=None, max_output_tokens=2048):
 
     if provider == 'anthropic':
         return _anthropic(prompt, api_key, model, max_output_tokens)
-    if provider == 'openai':
-        return _openai(prompt, api_key, model, max_output_tokens)
+    if provider in ('openai', 'nvidia'):
+        return _openai(
+            prompt, api_key, model, max_output_tokens,
+            base_url=PROVIDERS[provider].get('base_url'),
+        )
     return _google(prompt, api_key, model, max_output_tokens)
 
 
@@ -99,13 +111,31 @@ def _anthropic(prompt, api_key, model, max_output_tokens):
         raise LlmError(str(exc)) from exc
 
 
-def _openai(prompt, api_key, model, max_output_tokens):
+def _openai(prompt, api_key, model, max_output_tokens, base_url=None):
+    """OpenAI 및 OpenAI 호환 엔드포인트(NVIDIA build).
+
+    `base_url` 이 있으면 호환 엔드포인트이므로 chat.completions 를 쓴다 — responses API 는
+    OpenAI 고유라 호환 서버에는 없다.
+    """
     try:
         from openai import OpenAI
     except ImportError as exc:
         raise LlmError('openai SDK 가 설치되지 않았습니다.') from exc
     try:
-        client = OpenAI(api_key=api_key)
+        client = OpenAI(api_key=api_key, base_url=base_url) if base_url else OpenAI(api_key=api_key)
+        if base_url:
+            res = client.chat.completions.create(
+                model=model,
+                messages=[{'role': 'user', 'content': prompt}],
+                max_tokens=max_output_tokens,
+            )
+            usage = getattr(res, 'usage', None)
+            return LlmResult(
+                res.choices[0].message.content or '',
+                getattr(usage, 'prompt_tokens', 0) or 0,
+                getattr(usage, 'completion_tokens', 0) or 0,
+                model,
+            )
         res = client.responses.create(
             model=model, input=prompt, max_output_tokens=max_output_tokens
         )

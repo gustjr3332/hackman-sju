@@ -146,6 +146,8 @@ def recommend_users_for_team(contest, team, limit=5):
             'username': profile.user.username,
             'skills': profile.skills,
             'roles': profile.roles,
+            # 태그만으로는 안 보이는 실제 결과물을 팀이 직접 확인할 수 있게 함께 내려준다.
+            'github_url': profile.github_url,
             'score': score,
             'reasons': reasons,
         })
