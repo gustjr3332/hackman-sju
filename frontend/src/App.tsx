@@ -28,6 +28,8 @@ export default function App() {
   const [username, setUsername] = useState<string | null>(getStoredUsername());
   const [isOrganizer, setIsOrganizer] = useState(false);
   const [showCreateForm, setShowCreateForm] = useState(false);
+  // 로그인 폼을 접고 관람만 하는 상태. 로그인하면 의미가 없어지므로 함께 해제한다.
+  const [browsing, setBrowsing] = useState(false);
   // null 이면 안내를 띄우지 않는다. 숫자면 "깨우는 중"이며 그 값은 경과 초.
   const [wakingSeconds, setWakingSeconds] = useState<number | null>(null);
 
@@ -126,6 +128,7 @@ export default function App() {
   function handleLoggedIn(name: string) {
     setUsername(name);
     setStatus('');
+    setBrowsing(false);
     loadContests();
   }
 
@@ -195,12 +198,21 @@ export default function App() {
           )}
         </div>
         <div className="header-right">
+          {!username && !browsing && (
+            <button type="button" className="link-btn" onClick={() => setBrowsing(true)}>
+              로그인 없이 둘러보기
+            </button>
+          )}
           <ThemeToggle />
           {username && (
             <div className="auth-status">
-              <span>
-                {username}
-                {isOrganizer && <span className="role-tag">운영자</span>}
+              {/* 이니셜 아바타 + 이름/역할 2줄 (DESIGN.md 헤더 규격). */}
+              <span className="avatar" aria-hidden="true">
+                {username.slice(0, 1).toUpperCase()}
+              </span>
+              <span className="auth-identity">
+                <span className="auth-name">{username}</span>
+                <span className="auth-role">{isOrganizer ? '운영자' : '참가자'}</span>
               </span>
               <button type="button" onClick={handleLogout}>
                 로그아웃
@@ -221,7 +233,19 @@ export default function App() {
           </p>
         )}
 
-        {!username && <AuthPanel onLoggedIn={handleLoggedIn} />}
+        {/* 관람자는 로그인 없이 목록·스코어보드를 볼 수 있다. 패널을 접어 두면 대회가
+            바로 보이고, 필요할 때 헤더에서 다시 연다. */}
+        {!username &&
+          (browsing ? (
+            <p className="guest-note">
+              둘러보는 중입니다 — 팀 참가·제출·채점은 로그인이 필요합니다.{' '}
+              <button type="button" className="link-btn" onClick={() => setBrowsing(false)}>
+                로그인하기
+              </button>
+            </p>
+          ) : (
+            <AuthPanel onLoggedIn={handleLoggedIn} />
+          ))}
 
         {selected ? (
           <ContestDetail
@@ -261,8 +285,15 @@ export default function App() {
                   className={`contest-card status-${contest.status}`}
                   onClick={() => setSelectedSlug(contest.slug)}
                 >
+                  {/* 상태 점 → 이름 → 날짜·팀수 → 진입 화살표 (DESIGN.md 목록 행 규격). */}
+                  <span className={`status-dot status-${contest.status}`} aria-hidden="true" />
                   <div className="contest-card-main">
-                    <h2>{contest.name}</h2>
+                    <h2>
+                      {contest.name}
+                      <span className={`status-badge status-${contest.status}`}>
+                        {STATUS_LABEL[contest.status]}
+                      </span>
+                    </h2>
                     <p className="contest-meta">
                       <span>
                         {contest.start_at.slice(0, 10)} – {contest.end_at.slice(0, 10)}
@@ -270,9 +301,22 @@ export default function App() {
                       <span>{contest.team_count}팀</span>
                     </p>
                   </div>
-                  <span className={`status-badge status-${contest.status}`}>
-                    {STATUS_LABEL[contest.status]}
-                  </span>
+                  <svg
+                    className="row-chevron"
+                    width="16"
+                    height="16"
+                    viewBox="0 0 16 16"
+                    fill="none"
+                    aria-hidden="true"
+                  >
+                    <polyline
+                      points="6,3 11,8 6,13"
+                      stroke="currentColor"
+                      strokeWidth="1.6"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
                 </article>
               ))}
               {contests.length === 0 && !status && (
@@ -285,6 +329,7 @@ export default function App() {
 
       <footer className="site-footer">
         <p id="sync-status">{status}</p>
+        <p className="site-credit">HACKMAN · Django REST + React</p>
       </footer>
     </>
   );
