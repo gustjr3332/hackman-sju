@@ -19,6 +19,7 @@ import { CountdownTimer } from './CountdownTimer';
 import { ROUND_LABEL, ROUNDS, STATUS_HINT, STATUS_LABEL, STATUS_ORDER } from './labels';
 import { PresentationSchedule } from './PresentationSchedule';
 import { ProfilePanel } from './ProfilePanel';
+import { TeamCandidates } from './TeamCandidates';
 import { TeamRecommendations } from './TeamRecommendations';
 import { canFormTeams, canScore, canSubmit, isLive } from './rules';
 import { SubmissionReviewPanel } from './SubmissionReview';
@@ -813,6 +814,9 @@ function TeamCard({ team, username, contestStatus, onJoin, onSubmissionSaved }: 
       <p className="team-members">
         참가자: {team.participants.map((p) => p.username).join(', ') || '없음'}
       </p>
+
+      {/* 모집중일 때만, 그리고 내 팀에서만 후보를 찾는다. */}
+      {isMine && canFormTeams(contestStatus) && <TeamCandidates teamId={team.id} />}
 
       {isMine && canSubmit(contestStatus) ? (
         <form className="submission-form" onSubmit={handleSubmit}>
