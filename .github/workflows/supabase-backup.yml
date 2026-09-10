@@ -1,0 +1,33 @@
+# Supabase 무료 플랜에는 자동 백업이 없다(유료만 일 1회). 주 1회 덤프를 떠서
+# Actions 아티팩트로 90일 보관한다.
+#
+# PG_IMAGE 는 Supabase 서버의 메이저 버전과 맞춰야 한다. 클라이언트가 서버보다
+# 낮으면 pg_dump 가 버전 불일치로 거부한다. 버전은 Supabase 대시보드의
+# Settings > Infrastructure 에서 확인한다.
+name: supabase-backup
+
+on:
+  schedule:
+    - cron: '0 4 * * 0'    # 매주 일요일 UTC 04:00
+  workflow_dispatch:
+
+env:
+  PG_IMAGE: postgres:17-alpine
+
+jobs:
+  dump:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dump database
+        env:
+          DATABASE_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          docker run --rm -v "$GITHUB_WORKSPACE:/backup" "$PG_IMAGE" \
+            pg_dump "$DATABASE_URL" -Fc -f /backup/backup.dump
+          ls -lh backup.dump
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: supabase-backup-${{ github.run_id }}
+          path: backup.dump
+          retention-days: 90

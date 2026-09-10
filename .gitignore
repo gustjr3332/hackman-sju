@@ -1,3 +1,8 @@
 .DS_Store
 Thumbs.db
 .claude/
+
+# DB 이전용 덤프. 사용자 데이터(해시된 비밀번호 포함)가 들어 있으므로 커밋 금지.
+/backup.dump
+/data.json
+/data.cp949.bak

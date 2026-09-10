@@ -104,8 +104,21 @@ WSGI_APPLICATION = 'config.wsgi.application'
 # https://docs.djangoproject.com/en/6.1/ref/settings/#databases
 
 if os.getenv('DATABASE_URL'):
-    # Render/Railway inject a single connection string for the managed DB.
-    DATABASES = {'default': dj_database_url.parse(os.environ['DATABASE_URL'])}
+    # Render/Railway/Supabase 는 관리형 DB 를 단일 연결 문자열로 넘겨준다.
+    #
+    # Supabase 는 Supavisor 풀러(aws-*.pooler.supabase.com) 뒤에 있으므로 Django
+    # 쪽 영속 연결을 끈다(conn_max_age=0). 풀러가 이미 연결을 재사용하고 있어서,
+    # Django 가 붙들고 있는 유휴 연결은 풀 슬롯만 차지하다 서버 쪽에서 끊기고
+    # 다음 요청에서 InterfaceError 로 터진다.
+    #
+    # 풀러는 세션 모드(포트 5432)를 전제로 한다 - 일반 Postgres 와 동작이 같아
+    # migrate 와 서버 사이드 커서가 그대로 돈다. 트랜잭션 모드(6543)로 바꾸려면
+    # disable_server_side_cursors=True 가 함께 필요하다.
+    DATABASES = {'default': dj_database_url.parse(
+        os.environ['DATABASE_URL'],
+        conn_max_age=0,
+        ssl_require=True,
+    )}
 else:
     DATABASES = {
         'default': {

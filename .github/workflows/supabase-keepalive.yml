@@ -1,0 +1,24 @@
+# Supabase 무료 플랜은 7일간 활동이 없으면 프로젝트를 일시정지한다. 데이터는
+# 남지만 사이트는 죽고, 대시보드에서 수동으로 깨워야 한다. 매일 쿼리 한 번을
+# 던져서 그 타이머를 리셋한다.
+#
+# Render 앱을 curl 하지 않고 DB 를 직접 찌르는 이유: Render 무료 웹서비스는
+# 유휴 시 잠들어서 curl 이 콜드스타트 타임아웃으로 실패할 수 있는데, 그러면
+# 정작 막으려던 Supabase 일시정지가 그대로 일어난다.
+name: supabase-keepalive
+
+on:
+  schedule:
+    - cron: '17 3 * * *'   # 매일 UTC 03:17 (KST 12:17)
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Touch the database
+        env:
+          DATABASE_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          docker run --rm postgres:17-alpine \
+            psql "$DATABASE_URL" -tAc "select 'keepalive ok at ' || now()"
