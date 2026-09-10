@@ -100,9 +100,9 @@ Django REST Framework + React(Vite) 기반 해커톤/공모전 운영 플랫폼�
 | 백엔드 | Python / Django 6.1 + Django REST Framework | REST API 서버, 프론트와 완전히 분리 |
 | 프론트엔드 | TypeScript / React 18 (Vite) | SPA, 백엔드 API를 fetch로 호출 |
 | 인증 | JWT (`djangorestframework-simplejwt`) | 웹+앱(Flutter) 공용 전제 |
-| DB | PostgreSQL 16 | 로컬 개발은 Docker, 배포는 Render 관리형 DB |
+| DB | PostgreSQL | 로컬 개발은 Docker(16), 운영은 Supabase 무료 플랜 |
 | API 테스트 | Postman | `backend/postman/`에 컬렉션·환경 파일로 관리 |
-| 배포(백엔드) | Render (Web Service + 관리형 PostgreSQL) | gunicorn + whitenoise |
+| 배포(백엔드) | Render Web Service + Supabase PostgreSQL | gunicorn + whitenoise |
 | 배포(프론트) | Vercel | Root Directory: `frontend` |
 | 향후 하이브리드 앱 | Flutter | 같은 Django REST API 재사용 예정 |
 
@@ -239,7 +239,7 @@ External URL은 외부 접속용이라 Render 내부 URL과 다르고, 무료 DB
 - Build: `pip install -r requirements.txt`
 - Start: `python manage.py migrate --noinput && python manage.py collectstatic --noinput && gunicorn config.wsgi`
   (대시보드 **Start Command** 필드가 `Procfile`보다 우선이므로 둘을 같은 값으로 유지)
-- DB: Render 관리형 PostgreSQL, `DATABASE_URL`로 연결
+- DB: Supabase PostgreSQL, `DATABASE_URL`로 연결 (아래 [데이터베이스](#데이터베이스-supabase) 참고)
 - 환경변수: `DJANGO_SECRET_KEY`, `DJANGO_DEBUG=False`,
   `DJANGO_ALLOWED_HOSTS=web-claude-t.onrender.com`, `DATABASE_URL`,
   `CORS_ALLOWED_ORIGINS=https://hackman-sju.vercel.app`
@@ -249,6 +249,116 @@ External URL은 외부 접속용이라 Render 내부 URL과 다르고, 무료 DB
   더 빨리 막힌다. 토큰을 넣으면 5000회/시간이 되어 문제가 사라진다. 공개 저장소만 읽으므로
   scope 없는 fine-grained 읽기 토큰으로 충분하다.
 - 그 밖의 선택 환경변수: `SCOREBOARD_CACHE_SECONDS`(기본 3), `GITHUB_CACHE_SECONDS`(기본 1800)
+
+### 데이터베이스 (Supabase)
+
+2026-09-10 에 Render 관리형 PostgreSQL 에서 Supabase 무료 플랜으로 옮겼다. Render 무료 DB 는
+생성 30일 뒤 삭제되어, 매달 백업하고 새로 만들지 않으면 데이터가 사라진다. 그 만료가 없는
+무료 Postgres 중 대시보드에서 데이터를 바로 들여다볼 수 있는 곳으로 골랐다.
+
+**Postgres 만 쓴다.** Supabase 의 Auth·Storage·Realtime 은 붙이지 않았다. 인증은 이미
+SimpleJWT 가, 정적 파일은 whitenoise 가 맡고 있고 업로드 필드(`FileField`)는 한 개도 없다.
+지금 이 프로젝트에 Supabase 는 "만료되지 않는 관리형 Postgres" 이상도 이하도 아니다.
+
+```
+[브라우저] ──▶ Vercel (정적 SPA)
+           └─▶ Render Web Service ──▶ Supavisor 풀러 :5432 ──▶ Supabase PostgreSQL
+                (Django + gunicorn)
+[GitHub Actions] ─ 매일 keepalive 쿼리 / 매주 pg_dump
+```
+
+#### 연결 문자열은 반드시 "세션 풀러"
+
+세 가지 문자열이 제공되는데 겉모습이 거의 같아서 헷갈린다. 구분은 스킴이 아니라 **호스트**다.
+
+| | 유저명 | 호스트 | 포트 | 채택 |
+|---|---|---|---|:-:|
+| Direct | `postgres` | `db.<ref>.supabase.co` | 5432 | ✗ |
+| Session pooler | `postgres.<ref>` | `aws-N-<region>.pooler.supabase.com` | 5432 | **○** |
+| Transaction pooler | `postgres.<ref>` | `aws-N-<region>.pooler.supabase.com` | 6543 | ✗ |
+
+- **Direct 를 쓰면 안 된다.** 무료 플랜의 direct 연결은 IPv6 전용이고 Render 아웃바운드는
+  IPv4 다. 로컬(IPv6 있는 가정용 회선)에서는 붙어서 검증을 통과해 놓고 배포 후에만 연결
+  타임아웃으로 죽는, 가장 나쁜 형태로 실패한다.
+- **세션 모드(5432)** 는 일반 Postgres 와 동작이 같아 `migrate` 도 서버 사이드 커서도 그대로
+  돈다. 트랜잭션 모드(6543)로 바꾸려면 `disable_server_side_cursors=True` 가 함께 필요하고,
+  gunicorn 워커가 1개인 지금은 연결 수가 모자랄 일이 없어 이득이 없다.
+- 유저명이 `postgres` 가 아니라 `postgres.<project-ref>` 인 것, 대시보드가 보여주는
+  `[YOUR-PASSWORD]` 의 **대괄호는 자리표시자라 지워야 한다**는 것 두 가지가 자주 틀린다.
+- 비밀번호에 `@ : / ? #` 가 있으면 URL 인코딩해야 한다. 귀찮으면 대시보드에서 영숫자
+  비밀번호로 재설정하는 편이 빠르다.
+
+#### Django 쪽 설정 (`backend/config/settings.py`)
+
+```python
+DATABASES = {'default': dj_database_url.parse(
+    os.environ['DATABASE_URL'],
+    conn_max_age=0,      # 풀러가 이미 연결을 재사용한다
+    ssl_require=True,    # 풀러는 평문 연결을 거부한다
+)}
+```
+
+`conn_max_age=0` 이 핵심이다. 풀러 뒤에서 Django 가 영속 연결을 붙들면 풀 슬롯만 차지하다
+서버 쪽에서 끊기고, 다음 요청이 `InterfaceError` 로 실패한다.
+
+#### 무료 플랜의 두 구멍과 대응
+
+| 구멍 | 영향 | 대응 |
+|---|---|---|
+| 7일 무활동 시 프로젝트 일시정지 | 데이터는 남지만 서비스가 죽고 수동 복구가 필요 | `.github/workflows/supabase-keepalive.yml` — 매일 쿼리 1회 |
+| 자동 백업 없음(유료만 일 1회) | 실수로 지우면 복구 불가 | `.github/workflows/supabase-backup.yml` — 주 1회 `pg_dump`, 아티팩트 90일 |
+
+keepalive 는 Render 앱을 curl 하지 않고 **DB 를 직접 찌른다.** Render 무료 웹서비스는 유휴 시
+잠들어 있어 curl 이 콜드스타트 타임아웃으로 실패할 수 있는데, 그러면 정작 막으려던 일시정지가
+그대로 일어난다. 두 워크플로 모두 `SUPABASE_DB_URL` 리포지토리 시크릿(세션 풀러 URL 전체)을
+쓴다.
+
+백업 워크플로의 `PG_IMAGE` 는 **Supabase 서버의 메이저 버전과 맞춰야 한다.** 클라이언트가
+서버보다 낮으면 `pg_dump` 가 버전 불일치로 거부하는데, 스케줄 실행이라 조용히 실패한다.
+버전은 Supabase 대시보드 Settings → Infrastructure 에서 확인한다. 2026-09-10 기준 이 프로젝트는
+`17.6.1.166`(메이저 17)이라 `postgres:17-alpine` 이 맞고, 수동 실행으로 백업 성공까지 확인했다.
+
+#### 이전 절차 (재현 가능한 형태)
+
+`pg_dump`/`pg_restore` 가 아니라 **Django 의 `dumpdata`/`loaddata` 로 옮겼다.** Render 가
+PostgreSQL 18.6 이었고 Supabase 신규 프로젝트는 그보다 낮은 메이저 버전이라, 상위 버전 덤프를
+하위 서버에 복원하는 지원되지 않는 조합이 된다. 스키마는 `migrate` 가 새로 만들고 데이터만
+JSON 으로 옮기면 버전 문제가 통째로 사라진다. 데이터가 수십 건 규모라 가능한 선택이었고,
+수만 건이었다면 버전을 맞춘 `pg_restore` 를 썼어야 한다.
+
+```powershell
+# 0. 안전 백업 (복원용이 아니라 보험. 로컬에 Postgres 클라이언트가 없어 Docker 로 실행)
+docker run --rm -v ${PWD}:/backup postgres:18-alpine `
+  pg_dump "<Render External URL>" -Fc -f /backup/backup.dump
+
+# 1. 데이터만 추출. PYTHONUTF8 을 켜지 않으면 Windows 에서 cp949 로 저장된다(아래 트러블슈팅)
+cd backend
+$env:PYTHONUTF8 = "1"
+$env:DATABASE_URL = '<Render External URL>'
+.\.venv\Scripts\python.exe manage.py dumpdata `
+  --natural-foreign --natural-primary `
+  --exclude contenttypes --exclude auth.permission --exclude sessions `
+  --indent 2 -o ..\data.json
+
+# 2. Supabase 에 스키마 생성 후 주입
+$env:DATABASE_URL = '<세션 풀러 URL>'
+.\.venv\Scripts\python.exe manage.py migrate
+.\.venv\Scripts\python.exe manage.py loaddata ..\data.json
+
+# 3. 건수 대조 후 Render 대시보드에서 DATABASE_URL 교체 → Manual Deploy
+```
+
+- `contenttypes` 와 `auth.permission` 은 `migrate` 가 새로 만들므로 제외한다. 넣으면 PK 가
+  충돌한다. `--natural-foreign` 이 있어야 `admin.logentry` 의 content_type FK 가 자연키로
+  직렬화되어 새 DB 에서 해석된다.
+- PowerShell 에서 환경변수를 넣을 때는 **작은따옴표**를 써야 한다. 큰따옴표 안에서는 비밀번호의
+  `$` 가 변수로 해석되어 조용히 사라진다.
+- `loaddata` 는 트랜잭션 안에서 돌기 때문에 실패해도 부분 적용되지 않는다. 고쳐서 다시 돌리면
+  된다. 완료 시 시퀀스도 함께 리셋된다.
+- 덤프 파일(`backup.dump`, `data.json`)은 해시된 비밀번호를 포함한 사용자 데이터라 `.gitignore`
+  에 넣었다.
+- **전환 후에도 Render DB 를 바로 지우지 않는다.** 1주일 두고 문제가 없으면 지운다(방치해도
+  30일 뒤 자동 삭제된다).
 
 ### 대회 당일 Starter 플랜 전환 (슬립 방지 런북)
 
@@ -267,7 +377,8 @@ Render Free 는 15분 미사용 시 잠들고 첫 요청에 30~50초가 걸린�
    몇 초는 느릴 수 있다).
 4. **다음날**: Instance Type 을 Free 로 되돌린다. 되돌리는 것을 잊으면 계속 과금된다 —
    대회 종료 직후 캘린더에 알림을 걸어 둔다.
-5. DB(관리형 PostgreSQL)는 손대지 않는다. 슬립은 웹 서비스 쪽 문제다.
+5. DB는 손대지 않는다. 슬립은 웹 서비스 쪽 문제이고, DB 는 Render 밖(Supabase)에 있어
+   인스턴스 타입 변경과 무관하다.
 
 ### 프론트엔드 (Vercel)
 
@@ -665,6 +776,42 @@ entry`로 터짐(API 응답은 static을 쓰지 않아 멀쩡했음). 로컬에�
 재현 → `collectstatic` 후 200 확인.
 해결: `Procfile`과 Render **Start Command**에 `python manage.py collectstatic --noinput`을
 `migrate` 다음에 추가.
+
+### Supabase 이전: `dumpdata` 결과가 cp949 로 저장됨 (2026-09-10, 해결됨)
+
+증상: `loaddata` 가 `UnicodeDecodeError: 'utf-8' codec can't decode byte 0xb5 in position 1549`
+로 실패. 0xb5 는 cp949 의 한글 바이트다(`1등` 의 `등`).
+
+원인: Django 의 `dumpdata -o` 는 출력 파일을 `open(path, "w")` 로 열어 **로케일 인코딩**을
+쓴다. 한국어 Windows 에서는 cp949 다. `loaddata` 는 UTF-8 로만 읽는다. `>` 리다이렉션을
+피하려고 `-o` 를 썼는데, `-o` 자체에 같은 함정이 있었다.
+
+해결: `dumpdata` 실행 전에 `$env:PYTHONUTF8 = "1"`. 이미 만들어진 파일은 cp949 로 읽어
+UTF-8 로 다시 쓰면 된다(cp949 로 쓰는 데 성공했다면 한글 손실은 없다).
+
+### Supabase 이전: PowerShell 이 바이너리·문자열을 망가뜨리는 두 지점 (2026-09-10)
+
+- `pg_dump ... > backup.dump` — PowerShell 5.1 은 파이프 출력에 UTF-8 인코딩을 걸어 바이너리
+  덤프를 손상시킨다. 반드시 볼륨 마운트 + `-f` 로 파일을 직접 쓰게 한다.
+- `$env:DATABASE_URL = "...$..."` — 큰따옴표 안에서 비밀번호의 `$` 가 변수로 해석되어 조용히
+  사라진다. 연결 문자열은 **작은따옴표**로 넣는다.
+
+둘 다 에러 없이 잘못된 결과만 남기므로, 증상이 한참 뒤에 엉뚱한 곳에서 나타난다.
+
+### Windows 에 Postgres 클라이언트가 없을 때 (2026-09-10)
+
+`winget install PostgreSQL.PostgreSQL.17` 이 EnterpriseDB 다운로드에서
+`0x80190193 : Forbidden (403)` 로 실패했다. 설치를 포기하고 Docker 이미지에 들어 있는
+클라이언트를 그대로 썼다:
+
+```powershell
+docker run --rm -v ${PWD}:/backup postgres:18-alpine pg_dump "<URL>" -Fc -f /backup/backup.dump
+docker run --rm postgres:18-alpine psql "<URL>" -c "select version()"
+```
+
+서버 버전에 맞춰 태그만 바꾸면 되므로(`postgres:17-alpine` 등) 버전 여러 개를 다뤄야 하는
+이전 작업에는 설치본보다 오히려 낫다. `psql ... -c "select version()"` 은 Django 를 끼우지
+않고 연결 문자열만 검증할 수 있어 원인 분리에도 쓸 만하다.
 
 ### Render 디버깅 팁
 
