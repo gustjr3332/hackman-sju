@@ -14,6 +14,7 @@ whitenoise==6.12.0
 # LLM 제공사 SDK. 키가 설정된 제공사만 실제로 쓰이고, import 는 호출 시점까지 미룬다
 # (contests/llm/base.py) - 안 쓰는 제공사 때문에 콜드 스타트가 늘지 않게 한다.
 # openai 는 아직 키가 없어 지금은 쓰이지 않는다 - GPT 유료 키를 넣을 때를 위해 미리 둔다.
-# anthropic 은 아직 키가 없어 넣지 않았다 - 쓸 때 추가한다.
+# anthropic 도 같다 - 심사 보조 분석을 Claude 로 돌리려면 키만 넣으면 되도록 미리 둔다.
+anthropic==1.5.0
 google-genai==2.22.0
 openai==3.8.0

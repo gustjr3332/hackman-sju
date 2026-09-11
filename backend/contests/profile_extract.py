@@ -12,6 +12,7 @@ from django.utils import timezone
 from .llm import LlmError, complete
 from .llm.base import parse_json_object
 from .models import Profile
+from .tech_stacks import resolve
 
 # 태그를 정해진 목록에 맞춘다. 자유 문자열이면 "React"/"리액트"/"react.js" 가 다 다른 태그가
 # 되어 매칭이 조용히 망가진다. 목록에 없는 것은 other_skills 로 따로 받아 버리지 않는다.
@@ -58,7 +59,10 @@ def extract_profile(profile, provider=None, model=None):
         profile.save(update_fields=['extraction_status', 'extraction_error'])
         return profile
 
-    profile.skills = _clean(data.get('skills'))
+    # 정규 목록(TechStack)에 맞춘다. 매핑 안 된 값은 버리지 않고 other_skills 로 남긴다 —
+    # 버리면 참가자가 실제로 쓴 기술이 사라지고, 운영자가 목록에 무엇을 추가해야 하는지도
+    # 알 수 없게 된다.
+    profile.skills, profile.other_skills = resolve(_clean(data.get('skills')))
     profile.interests = _clean(data.get('interests'))
     # 모델이 목록 밖의 역할을 지어내는 일이 있어 여기서 한 번 더 거른다.
     profile.roles = [r for r in _clean(data.get('roles')) if r in KNOWN_ROLES]

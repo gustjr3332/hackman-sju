@@ -14,6 +14,7 @@ from .views import (
     TeamCandidateView,
     TeamRecommendationView,
     TeamViewSet,
+    TechStackListView,
 )
 
 router = DefaultRouter()
@@ -35,6 +36,8 @@ urlpatterns = router.urls + [
     path('profile/', MyProfileView.as_view(), name='my-profile'),
     path('profile/extract/', ProfileExtractView.as_view(), name='profile-extract'),
     path('llm/models/', LlmModelsView.as_view(), name='llm-models'),
+    # 정규 기술 스택 목록(프로필 선택 UI 의 정본). 목록 관리는 Django admin 에서 한다.
+    path('tech-stacks/', TechStackListView.as_view(), name='tech-stacks'),
     path(
         'contests/<slug:slug>/recommended_teams/',
         TeamRecommendationView.as_view(),

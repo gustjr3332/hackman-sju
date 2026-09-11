@@ -167,7 +167,14 @@ class Profile(models.Model):
     # 개인 GitHub 주소. 태그만으로는 안 보이는 실제 결과물을 팀이 직접 확인하는 통로다.
     github_url = models.URLField(blank=True)
     # 추출 결과. 참가자가 화면에서 직접 고칠 수 있어야 하므로 읽기 전용이 아니다.
+    # skills 는 `TechStack.slug` 목록이다 — 자유 문자열이면 react/리액트/React.js 가 다른
+    # 스택으로 세어져 매칭이 조용히 망가진다(matching.py 의 `_normalize()` 는 대소문자·공백만
+    # 처리한다).
     skills = models.JSONField(default=list, blank=True)
+    # 정규 목록에 없어서 매핑하지 못한 스택. **버리지 않는다** — 버리면 참가자가 실제로 쓴
+    # 기술이 사라지고, 운영자가 목록에 무엇을 추가해야 하는지도 알 수 없게 된다. 자기소개
+    # 자동 정리에서만 생기고 참가자가 직접 타이핑하는 경로는 두지 않는다.
+    other_skills = models.JSONField(default=list, blank=True)
     interests = models.JSONField(default=list, blank=True)
     roles = models.JSONField(default=list, blank=True)
     level = models.CharField(
@@ -187,3 +194,96 @@ class Profile(models.Model):
 
     def __str__(self):
         return f'profile of {self.user}'
+
+
+class TechStack(models.Model):
+    """정규 기술 스택 목록. 프로필의 `skills` 가 참조하는 정본이다.
+
+    **코드 상수가 아니라 DB 테이블인 이유는 운영자가 대회 중에 목록을 고칠 수 있어야 하기
+    때문이다.** 상수라면 목록에 없는 스택이 대회 당일 나왔을 때 재배포 전에는 손을 쓸 수 없고,
+    Render 무료 인스턴스라 재배포에는 콜드 스타트(30~50초)까지 따라붙는다. 관리 화면은 따로
+    만들지 않고 Django admin 을 쓴다 — 운영자가 목록을 고치는 빈도에 비해 전용 화면은 과하다.
+
+    삭제 대신 `is_active` 를 내린다. 이미 프로필이 참조 중인 스택을 지우면 과거 프로필의
+    태그가 말없이 사라진다. 비활성 스택은 새로 고를 수 없고 기존 참조는 남는다.
+    """
+
+    class Category(models.TextChoices):
+        LANGUAGE = 'language', '언어'
+        FRAMEWORK = 'framework', '프레임워크·라이브러리'
+        TOOL = 'tool', '도구·인프라'
+
+    # 프로필에 저장되는 값이자 API 가 주고받는 키. GitHub 언어 목록의 표기를 소문자화한 것.
+    slug = models.SlugField(primary_key=True, max_length=60)
+    name = models.CharField(max_length=60)
+    category = models.CharField(
+        max_length=20, choices=Category.choices, default=Category.LANGUAGE
+    )
+    # `react` / `React.js` / `리액트` 가 같은 것을 가리킨다는 사실을 적어 두는 자리. 자동
+    # 정리가 뽑은 문자열을 여기까지 훑어 정규 태그로 바꾼다.
+    aliases = models.JSONField(default=list, blank=True)
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ['category', 'name']
+
+    def __str__(self):
+        return self.name
+
+
+class SubmissionReview(models.Model):
+    """심사 보조: 제출 저장소를 LLM 이 미리 읽고 정리한 결과.
+
+    **점수를 제안하지 않는다.** 제안 점수를 띄우면 심사위원이 거기에 닻을 내려(anchoring)
+    결국 모델이 채점하는 것과 같아진다. 출력은 "무엇이 있는지"까지고 판단은 사람이 한다.
+    대신 근거로 삼은 파일 경로를 반드시 남겨 심사위원이 직접 열어 확인할 수 있게 한다.
+
+    OneToOne 이 아니라 ForeignKey 다 — 같은 제출물을 여러 모델로 돌려 나란히 놓고 비교하는
+    것이 이 기능의 목적 중 하나이기 때문이다(어느 모델이 쓸 만한지는 실제 제출물로 재봐야
+    안다). `(submission, provider, model)` 이 유일하고, 같은 조합을 다시 돌리면 덮어쓴다.
+    """
+
+    class Status(models.TextChoices):
+        PENDING = 'pending', '분석 중'
+        DONE = 'done', '분석 완료'
+        FAILED = 'failed', '분석 실패'
+
+    submission = models.ForeignKey(
+        Submission, related_name='reviews', on_delete=models.CASCADE
+    )
+    provider = models.CharField(max_length=20)
+    model = models.CharField(max_length=80)
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
+    # 이 프로젝트가 실제로 하는 일 (README 주장이 아니라 코드 기준).
+    summary = models.TextField(blank=True)
+    # 항목 목록. 각 항목은 {kind, title, detail, paths} — kind 는 implemented/shell/note.
+    findings = models.JSONField(default=list, blank=True)
+    # 근거로 삼은 파일 경로. 심사위원이 직접 열어 확인하는 통로라 비면 안 된다.
+    cited_paths = models.JSONField(default=list, blank=True)
+    stack = models.JSONField(default=list, blank=True)
+    # 저장소가 커서 잘라 넣었는지 등, 분석 자체의 한계. 조용히 자르지 않는다.
+    truncated = models.BooleanField(default=False)
+    files_read = models.PositiveIntegerField(default=0)
+    input_tokens = models.PositiveIntegerField(default=0)
+    output_tokens = models.PositiveIntegerField(default=0)
+    error = models.TextField(blank=True)
+    # 분석이 읽은 시점의 제출물 수정 시각. 제출물이 그 뒤에 바뀌었으면 이 분석은 낡은 것이다.
+    # 행을 지우거나 상태를 되돌리지 않고 시각 비교로 판정한다 — 낡았어도 없는 것보다는 낫고,
+    # 무엇을 다시 돌려야 하는지는 화면에서 보이면 된다.
+    submission_seen_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['provider', 'model']
+        unique_together = ('submission', 'provider', 'model')
+
+    def __str__(self):
+        return f'{self.submission} analyzed by {self.provider}/{self.model}'
+
+    @property
+    def is_stale(self):
+        """분석 이후 제출물이 바뀌었는지. 바뀌었으면 재분석 대상이다."""
+        if self.submission_seen_at is None:
+            return False
+        return self.submission.submitted_at > self.submission_seen_at

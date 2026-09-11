@@ -22,6 +22,7 @@ import { ProfilePanel } from './ProfilePanel';
 import { TeamCandidates } from './TeamCandidates';
 import { TeamRecommendations } from './TeamRecommendations';
 import { canFormTeams, canScore, canSubmit, isLive } from './rules';
+import { JudgeAssistPanel } from './JudgeAssistPanel';
 import { SubmissionReviewPanel } from './SubmissionReview';
 import type {
   Contest,
@@ -304,7 +305,15 @@ export function ContestDetail({
             myScores={myScores}
             disabled={!canScore(contest.status)}
             onScored={load}
+            contestStartAt={contest.start_at}
           />
+        </div>
+      )}
+
+      {isOrganizer && (
+        <div>
+          <h3 className="section-heading">심사 보조 분석</h3>
+          <JudgeAssistPanel contestSlug={contest.slug} teams={teams} />
         </div>
       )}
 
@@ -586,9 +595,11 @@ interface JudgePanelProps {
   myScores: Score[];
   disabled: boolean;
   onScored: () => void;
+  /** 첫 커밋이 대회 시작보다 이른지 심사 화면이 표시할 수 있게 넘긴다. */
+  contestStartAt: string;
 }
 
-function JudgePanel({ teams, myScores, disabled, onScored }: JudgePanelProps) {
+function JudgePanel({ teams, myScores, disabled, onScored, contestStartAt }: JudgePanelProps) {
   const judgeable = teams.filter((team) => team.submission);
   // 팀이 늘어나면 폼이 한 화면을 넘기므로 한 번에 한 팀만 펼친다.
   // 아직 아무것도 고르지 않았으면 첫 팀을 연다. 팀 목록은 폴링으로 나중에 도착하므로
@@ -634,7 +645,10 @@ function JudgePanel({ teams, myScores, disabled, onScored }: JudgePanelProps) {
 
             {open && (
               <div className="judge-card-body">
-                <SubmissionReviewPanel submission={submission} />
+                <SubmissionReviewPanel
+                  submission={submission}
+                  contestStartAt={contestStartAt}
+                />
                 <div className="score-rounds">
                   {ROUNDS.map((r) => {
                     const existing = scoreOf(r);

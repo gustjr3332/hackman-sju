@@ -1,13 +1,16 @@
 import { useEffect, useState } from 'react';
 import {
+  fetchCommitSummary,
   fetchDefaultBranch,
   fetchFileContent,
   fetchReadme,
   fetchTree,
   GithubApiError,
   parseGithubRepo,
+  type GithubCommitSummary,
   type GithubFile,
 } from './github';
+import { SubmissionAnalysisPanel } from './SubmissionAnalysis';
 import type { Submission } from './types';
 
 const GITHUB_ERROR_LABEL: Record<string, string> = {
@@ -17,7 +20,14 @@ const GITHUB_ERROR_LABEL: Record<string, string> = {
 };
 
 /** 심사위원이 필요할 때만 펼쳐 보는 데모/코드 열람 패널. 펼치기 전에는 아무 요청도 하지 않는다. */
-export function SubmissionReviewPanel({ submission }: { submission: Submission }) {
+export function SubmissionReviewPanel({
+  submission,
+  contestStartAt,
+}: {
+  submission: Submission;
+  /** 대회 시작 시각. 첫 커밋이 이보다 이르면 화면이 그 사실을 표시한다. */
+  contestStartAt?: string;
+}) {
   const [open, setOpen] = useState(false);
 
   if (!submission.link_url && !submission.repo_url) return null;
@@ -51,8 +61,13 @@ export function SubmissionReviewPanel({ submission }: { submission: Submission }
       </button>
       {open && (
         <div className="review-body">
+          {/* 사전 분석을 먼저 놓는다 — 저장소를 처음부터 읽는 것보다 여기서 시작하는 편이
+              10분 안에 파악하는 데 낫고, 아래 트리로 근거를 직접 확인하면 된다. */}
+          {submission.repo_url && <SubmissionAnalysisPanel submissionId={submission.id} />}
           {submission.link_url && <DemoPanel linkUrl={submission.link_url} />}
-          {submission.repo_url && <GithubPanel repoUrl={submission.repo_url} />}
+          {submission.repo_url && (
+            <GithubPanel repoUrl={submission.repo_url} contestStartAt={contestStartAt} />
+          )}
         </div>
       )}
     </div>
@@ -85,12 +100,19 @@ type GithubState =
   | { status: 'error'; kind: string }
   | { status: 'ready'; readme: string | null; files: GithubFile[]; branch: string; truncated: boolean };
 
-function GithubPanel({ repoUrl }: { repoUrl: string }) {
+function GithubPanel({
+  repoUrl,
+  contestStartAt,
+}: {
+  repoUrl: string;
+  contestStartAt?: string;
+}) {
   const ref = parseGithubRepo(repoUrl);
   const [state, setState] = useState<GithubState>({ status: 'loading' });
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [fileContent, setFileContent] = useState<string | null>(null);
   const [fileError, setFileError] = useState('');
+  const [commits, setCommits] = useState<GithubCommitSummary | null>(null);
 
   useEffect(() => {
     if (!ref) return;
@@ -98,6 +120,7 @@ function GithubPanel({ repoUrl }: { repoUrl: string }) {
     setState({ status: 'loading' });
     setSelectedPath(null);
     setFileContent(null);
+    setCommits(null);
     (async () => {
       try {
         const branch = await fetchDefaultBranch(ref);
@@ -107,6 +130,12 @@ function GithubPanel({ repoUrl }: { repoUrl: string }) {
         ]);
         if (cancelled) return;
         setState({ status: 'ready', readme, files: tree.files, branch, truncated: tree.truncated });
+        // 커밋 요약은 트리·README 와 별개로 늦게 와도 된다 — 실패해도 코드 열람은 그대로다.
+        fetchCommitSummary(ref)
+          .then((summary) => {
+            if (!cancelled) setCommits(summary);
+          })
+          .catch(() => {});
       } catch (err) {
         if (cancelled) return;
         const kind = err instanceof GithubApiError ? err.kind : 'error';
@@ -172,6 +201,9 @@ function GithubPanel({ repoUrl }: { repoUrl: string }) {
               브랜치 {state.branch} · 파일 {state.files.length}개
               {state.truncated && ' (일부만 표시)'}
             </p>
+            {commits && (
+              <CommitSummaryLine summary={commits} contestStartAt={contestStartAt} />
+            )}
             <ul>
               {state.files.map((f) => (
                 <li key={f.path}>
@@ -213,5 +245,44 @@ function GithubPanel({ repoUrl }: { repoUrl: string }) {
         </div>
       )}
     </div>
+  );
+}
+
+function formatDateTime(iso: string): string {
+  const d = new Date(iso);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(
+    d.getDate()
+  ).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(
+    2,
+    '0'
+  )}`;
+}
+
+/**
+ * 첫 커밋 시각 한 줄.
+ *
+ * **판정하지 않는다.** 첫 커밋이 대회 시작보다 이르다는 사실만 표시하고, 그것이 문제인지는
+ * 심사위원이 정한다 — 포크·저장소 이관·squash·템플릿 사용처럼 정당한 이유로도 시각이 앞설 수
+ * 있어서, 화면이 "부정행위"라고 말하는 순간 오탐의 대가를 참가자가 지게 된다.
+ */
+function CommitSummaryLine({
+  summary,
+  contestStartAt,
+}: {
+  summary: GithubCommitSummary;
+  contestStartAt?: string;
+}) {
+  if (!summary.first_commit_at) {
+    return <p className="github-meta">커밋 기록을 확인할 수 없습니다.</p>;
+  }
+  const startedBefore =
+    contestStartAt != null &&
+    new Date(summary.first_commit_at).getTime() < new Date(contestStartAt).getTime();
+
+  return (
+    <p className={`github-meta${startedBefore ? ' before-contest' : ''}`}>
+      첫 커밋 {formatDateTime(summary.first_commit_at)} · 커밋 {summary.total_commits}개
+      {startedBefore && ' · 대회 시작 이전입니다 (직접 확인해 보세요)'}
+    </p>
   );
 }

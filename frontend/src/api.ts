@@ -12,9 +12,11 @@ import type {
   ScoreboardEntry,
   ScoreRound,
   Submission,
+  SubmissionReview,
   Team,
   TeamCandidate,
   TeamRecommendation,
+  TechStack,
 } from './types';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000/api';
@@ -391,4 +393,52 @@ export function fetchRecommendedTeams(slug: string): Promise<{ teams: TeamRecomm
 /** 이 팀에 맞는, 아직 팀이 없는 사람 순위. 팀원과 운영자만 볼 수 있다. */
 export function fetchTeamCandidates(teamId: number): Promise<{ candidates: TeamCandidate[] }> {
   return request(`/teams/${teamId}/candidates/`);
+}
+
+
+// ---------- 정규 기술 스택 목록 ----------
+
+/** 프로필의 스택 선택 목록. 백엔드가 정본이라 프론트에 같은 목록을 두지 않는다. */
+export function fetchTechStacks(): Promise<{ stacks: TechStack[] }> {
+  return request('/tech-stacks/');
+}
+
+
+// ---------- 심사 보조 (제출 저장소 사전 분석) ----------
+
+/** 이 제출물의 분석 결과 전부. 운영자·배정된 심사위원만 부를 수 있다(참가자는 403). */
+export function fetchSubmissionReviews(
+  submissionId: number
+): Promise<{ reviews: SubmissionReview[] }> {
+  return request(`/submissions/${submissionId}/reviews/`);
+}
+
+/**
+ * 제출물 하나를 지정한 모델로 분석한다 (운영자 전용).
+ *
+ * 응답은 완료된 결과가 아니라 **'분석 중' 행**이다 — 서버가 백그라운드에서 돌린다. 워커가
+ * 1개라 요청 안에서 LLM 을 기다리면 그동안 서비스 전체가 멈추기 때문이다. 완료는 폴링으로
+ * 확인한다.
+ */
+export function analyzeSubmission(
+  submissionId: number,
+  provider?: string,
+  model?: string
+): Promise<SubmissionReview> {
+  return request(`/submissions/${submissionId}/analyze/`, {
+    method: 'POST',
+    body: JSON.stringify({ provider, model }),
+  });
+}
+
+/** 대회의 제출물 전체를 한 모델로 분석한다 (운영자 전용, 심사 전에 한 번). */
+export function analyzeContestSubmissions(
+  slug: string,
+  provider?: string,
+  model?: string
+): Promise<{ queued: number; provider: string; model: string; reviews: SubmissionReview[] }> {
+  return request(`/contests/${slug}/analyze_submissions/`, {
+    method: 'POST',
+    body: JSON.stringify({ provider, model }),
+  });
 }

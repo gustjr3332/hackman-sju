@@ -2152,3 +2152,226 @@ body {
   font-size: 0.85rem;
   color: var(--muted);
 }
+
+/* ---------- 기술 스택 선택 (프로필) ----------
+   목록이 100개를 넘으므로 스크롤 영역 안에서 고른다. 고른 것은 위에 모아 둬서 스크롤을
+   내리지 않아도 현재 선택을 알 수 있게 한다. */
+
+.stack-selected {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-height: 28px;
+  align-items: center;
+}
+.stack-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--paper-raised);
+  color: var(--ink);
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+button.stack-chip.removable {
+  cursor: pointer;
+  /* 최소 터치 타겟(DESIGN.md)을 지키되 칩이 뚱뚱해지지 않게 세로 여백으로만 확보한다. */
+  min-height: 28px;
+  padding: 4px 10px;
+}
+button.stack-chip.removable:hover {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+.stack-list {
+  max-height: 260px;
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+  padding: 8px 10px;
+}
+.stack-list fieldset {
+  border: 0;
+  margin: 0 0 10px;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+}
+.stack-list legend {
+  padding: 0;
+  margin-bottom: 4px;
+  font-size: 0.75rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.stack-list label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 28px;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+
+/* ---------- 심사 보조 분석 ----------
+   점수처럼 읽히는 요소(별점·등급·큰 숫자)를 두지 않는다. 앵커링을 막는 것이 이 기능의
+   설계 전제라 시각적 위계도 "사실 목록"에 맞춘다. */
+
+.analysis-panel {
+  margin-bottom: 14px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--paper-raised);
+}
+.analysis-run {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.analysis-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.analysis-tabs button {
+  padding: 4px 10px;
+  min-height: 28px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+.analysis-tabs button.active {
+  border-color: var(--signal);
+  color: var(--signal);
+}
+.analysis-meta {
+  margin: 0 0 6px;
+  font-size: 0.75rem;
+  color: var(--muted);
+  font-family: var(--font-mono);
+}
+.analysis-status.done { color: var(--live); }
+.analysis-status.pending { color: var(--judging); }
+.analysis-status.failed { color: var(--danger); }
+.analysis-warning {
+  margin: 0 0 8px;
+  padding: 6px 8px;
+  border-left: 2px solid var(--judging);
+  color: var(--judging);
+  font-size: 0.8rem;
+}
+.analysis-summary {
+  margin: 0 0 8px;
+  font-size: 0.9rem;
+  line-height: 1.55;
+}
+.analysis-stack {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin: 0 0 10px;
+}
+.analysis-findings {
+  list-style: none;
+  margin: 0 0 8px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.analysis-findings .finding {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--line);
+}
+.analysis-findings .finding:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+.finding-kind {
+  grid-row: 1;
+  align-self: start;
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  border: 1px solid var(--line);
+  color: var(--muted);
+  white-space: nowrap;
+}
+.finding-kind.implemented { border-color: var(--live); color: var(--live); }
+.finding-kind.shell { border-color: var(--judging); color: var(--judging); }
+.finding-title {
+  grid-row: 1;
+  font-weight: 600;
+  font-size: 0.88rem;
+}
+.finding-detail {
+  grid-column: 2;
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+.finding-paths {
+  grid-column: 2;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 2px;
+}
+.finding-paths code {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--muted);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+
+/* 운영자용 실행 화면 */
+.assist-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.assist-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.assist-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  min-height: 44px;
+  padding: 8px 10px;
+  border: 0;
+  border-top: 1px solid var(--line);
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+/* 첫 커밋이 대회 시작보다 이를 때. 경고색이되 "부정행위" 로 읽히지 않게 한 줄 메모 수준으로
+   둔다 — 판정은 심사위원이 한다. */
+.github-meta.before-contest {
+  color: var(--judging);
+}

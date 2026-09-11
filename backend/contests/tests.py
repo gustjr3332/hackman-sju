@@ -12,7 +12,18 @@ from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APITestCase
 
-from .models import Award, Contest, Judge, Participant, Profile, Score, Submission, Team
+from .models import (
+    Award,
+    Contest,
+    Judge,
+    Participant,
+    Profile,
+    Score,
+    Submission,
+    SubmissionReview,
+    Team,
+    TechStack,
+)
 
 User = get_user_model()
 
@@ -994,11 +1005,18 @@ class AwardApiTests(ApiTestCase):
         self.assertFalse(Award.objects.filter(pk=award.id).exists())
 
 
-def fake_github_response(payload):
-    """`urllib.request.urlopen` 이 돌려주는 컨텍스트 매니저 흉내 (JSON 본문만 필요하다)."""
+def fake_github_response(payload, headers=None):
+    """`urllib.request.urlopen` 이 돌려주는 컨텍스트 매니저 흉내.
+
+    본문 외에 `headers` 도 받는다 — 커밋 수와 첫 커밋은 본문이 아니라 페이지네이션 `Link`
+    헤더로만 알 수 있기 때문이다.
+    """
     body = BytesIO(json.dumps(payload).encode('utf-8'))
+    entered = mock.MagicMock()
+    entered.read.side_effect = body.read
+    entered.headers = headers or {}
     fake = mock.MagicMock()
-    fake.__enter__.return_value = body
+    fake.__enter__.return_value = entered
     fake.__exit__.return_value = False
     return fake
 
@@ -1458,3 +1476,361 @@ class TeamMatchingTests(ApiTestCase):
         self.client.force_authenticate(team.participants.first().user)
         res = self.client.get(f'/api/teams/{team.id}/candidates/')
         self.assertNotIn('solo', [c['username'] for c in res.data['candidates']])
+
+
+class TechStackApiTests(ApiTestCase):
+    """정규 스택 목록. 자유 타이핑을 없애 매칭이 조용히 망가지는 것을 막는 게 목적이다."""
+
+    def setUp(self):
+        self.alice = User.objects.create_user('alice', password='pw12345678')
+
+    def test_seeded_list_is_served(self):
+        """빈 목록으로 배포되면 선택 자체가 불가능하다 — 시드가 실제로 들어가야 한다."""
+        self.client.force_authenticate(self.alice)
+        res = self.client.get('/api/tech-stacks/')
+        self.assertEqual(res.status_code, status.HTTP_200_OK, res.data)
+        slugs = [s['slug'] for s in res.data['stacks']]
+        self.assertIn('react', slugs)
+        self.assertIn('python', slugs)
+        self.assertIn('figma', slugs)
+
+    def test_anonymous_cannot_read_list(self):
+        self.assertEqual(
+            self.client.get('/api/tech-stacks/').status_code, status.HTTP_401_UNAUTHORIZED
+        )
+
+    def test_deactivated_stack_disappears_from_list(self):
+        """삭제가 아니라 비활성이다 — 이미 참조 중인 프로필의 태그가 사라지면 안 된다."""
+        TechStack.objects.filter(slug='jquery').update(is_active=False)
+        self.client.force_authenticate(self.alice)
+        res = self.client.get('/api/tech-stacks/')
+        self.assertNotIn('jquery', [s['slug'] for s in res.data['stacks']])
+
+    def test_list_cache_is_dropped_when_stack_changes(self):
+        """운영자가 대회 중에 추가한 스택이 그 자리에서 보여야 한다(목록을 DB 로 둔 이유)."""
+        self.client.force_authenticate(self.alice)
+        self.client.get('/api/tech-stacks/')  # 캐시를 채운다
+        TechStack.objects.create(slug='hackman', name='HACKMAN', category='tool')
+        res = self.client.get('/api/tech-stacks/')
+        self.assertIn('hackman', [s['slug'] for s in res.data['stacks']])
+
+    def test_profile_rejects_stack_outside_the_list(self):
+        """서버가 한 번 더 거른다 — 목록 밖 값이 들어오면 매칭이 다시 망가진다."""
+        self.client.force_authenticate(self.alice)
+        res = self.client.patch(
+            '/api/profile/', {'skills': ['react', '내가지어낸스택']}, format='json'
+        )
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_profile_accepts_canonical_slugs(self):
+        self.client.force_authenticate(self.alice)
+        res = self.client.patch(
+            '/api/profile/', {'skills': ['react', 'django', 'figma']}, format='json'
+        )
+        self.assertEqual(res.status_code, status.HTTP_200_OK, res.data)
+        self.assertEqual(res.data['skills'], ['react', 'django', 'figma'])
+
+    def test_extraction_folds_aliases_into_one_stack(self):
+        """`React.js` / `리액트` / `reactjs` 가 전부 같은 태그가 되어야 한다."""
+        Profile.objects.create(user=self.alice, intro='리액트 좀 합니다')
+        self.client.force_authenticate(self.alice)
+        fake = mock.Mock(
+            text='{"skills":["React.js","리액트","reactjs","파이썬"],"roles":[],'
+                 '"interests":[],"level":""}',
+            model='m',
+        )
+        with mock.patch('contests.profile_extract.complete', return_value=fake):
+            res = self.client.post('/api/profile/extract/')
+
+        self.assertEqual(res.data['skills'], ['react', 'python'])
+        self.assertEqual(res.data['other_skills'], [])
+
+    def test_extraction_keeps_unknown_stacks_instead_of_dropping_them(self):
+        """버리면 참가자가 실제로 쓴 기술이 사라지고, 목록에 뭘 추가할지도 알 수 없게 된다."""
+        Profile.objects.create(user=self.alice, intro='사내 프레임워크를 씁니다')
+        self.client.force_authenticate(self.alice)
+        fake = mock.Mock(
+            text='{"skills":["python","사내프레임워크"],"roles":[],"interests":[],"level":""}',
+            model='m',
+        )
+        with mock.patch('contests.profile_extract.complete', return_value=fake):
+            res = self.client.post('/api/profile/extract/')
+
+        self.assertEqual(res.data['skills'], ['python'])
+        self.assertEqual(res.data['other_skills'], ['사내프레임워크'])
+
+    def test_other_skills_is_read_only(self):
+        """참가자가 직접 타이핑하는 경로를 두지 않는 것이 이 작업의 목적이다."""
+        self.client.force_authenticate(self.alice)
+        res = self.client.patch(
+            '/api/profile/', {'other_skills': ['아무거나']}, format='json'
+        )
+        self.assertEqual(res.status_code, status.HTTP_200_OK, res.data)
+        self.assertEqual(res.data['other_skills'], [])
+
+
+class JudgeAssistTests(ApiTestCase):
+    """심사 보조 분석. 점수를 제안하지 않고, 실패해도 심사를 막지 않아야 한다."""
+
+    FAKE_CONTEXT = {
+        'readme': '# 프로젝트',
+        'file_list': 'app.py',
+        'file_count': 1,
+        'sources': '--- app.py ---',
+        'read_paths': ['app.py'],
+        'truncated': False,
+    }
+
+    def setUp(self):
+        self.contest = make_contest()
+        self.organizer = User.objects.create_user('org', password='pw12345678', is_staff=True)
+        self.judge_user = User.objects.create_user('judge', password='pw12345678')
+        self.member = User.objects.create_user('member', password='pw12345678')
+        Judge.objects.create(contest=self.contest, user=self.judge_user)
+
+        self.team = Team.objects.create(contest=self.contest, name='팀A')
+        Participant.objects.create(team=self.team, user=self.member)
+        self.submission = Submission.objects.create(
+            team=self.team, title='제출물', repo_url='https://github.com/owner/repo'
+        )
+
+    def _fake_answer(self):
+        return mock.Mock(
+            text='{"summary":"할 일 관리 앱이다","stack":["django"],'
+                 '"findings":[{"kind":"implemented","title":"할 일 CRUD",'
+                 '"detail":"모델과 뷰가 있다","paths":["app.py"]},'
+                 '{"kind":"shell","title":"알림","detail":"함수 본문이 비어 있다",'
+                 '"paths":["notify.py"]}]}',
+            input_tokens=1200,
+            output_tokens=300,
+            model='gemini-3.5-flash',
+        )
+
+    def _analyze(self, provider='google', model='gemini-3.5-flash'):
+        from .judge_assist import analyze_submission
+
+        with mock.patch(
+            'contests.judge_assist.collect_repo_context', return_value=self.FAKE_CONTEXT
+        ), mock.patch('contests.judge_assist.complete', return_value=self._fake_answer()):
+            return analyze_submission(self.submission, provider=provider, model=model)
+
+    def test_analysis_stores_findings_with_cited_paths(self):
+        review = self._analyze()
+        self.assertEqual(review.status, SubmissionReview.Status.DONE)
+        self.assertEqual(review.summary, '할 일 관리 앱이다')
+        self.assertEqual([f['kind'] for f in review.findings], ['implemented', 'shell'])
+        # 심사위원이 직접 열어 확인할 수 있어야 하므로 근거 경로가 반드시 남는다.
+        self.assertEqual(review.cited_paths, ['app.py', 'notify.py'])
+        self.assertEqual(review.input_tokens, 1200)
+
+    def test_analysis_has_no_score_field_at_all(self):
+        """앵커링을 막는 것이 이 기능의 설계 전제다 — 점수를 담을 자리 자체를 두지 않는다."""
+        field_names = [f.name for f in SubmissionReview._meta.get_fields()]
+        self.assertNotIn('score', field_names)
+        self.assertNotIn('suggested_score', field_names)
+
+    def test_llm_failure_is_recorded_not_raised(self):
+        """한 팀의 분석 실패가 나머지 분석이나 심사를 막으면 안 된다."""
+        from .judge_assist import analyze_submission
+        from .llm import LlmError
+
+        with mock.patch(
+            'contests.judge_assist.collect_repo_context', return_value=self.FAKE_CONTEXT
+        ), mock.patch('contests.judge_assist.complete', side_effect=LlmError('502')):
+            review = analyze_submission(self.submission, provider='google', model='m')
+
+        self.assertEqual(review.status, SubmissionReview.Status.FAILED)
+        self.assertIn('502', review.error)
+
+    def test_private_repo_is_recorded_as_failure(self):
+        """저장소가 비공개거나 없으면 그 사실을 남기고 수동 심사로 계속 간다."""
+        from .judge_assist import RepoUnavailable, analyze_submission
+
+        with mock.patch(
+            'contests.judge_assist.collect_repo_context',
+            side_effect=RepoUnavailable('저장소를 찾을 수 없습니다'),
+        ):
+            review = analyze_submission(self.submission, provider='google', model='m')
+
+        self.assertEqual(review.status, SubmissionReview.Status.FAILED)
+        self.assertIn('저장소를 읽을 수 없었습니다', review.error)
+
+    def test_unexpected_error_does_not_leave_the_row_pending(self):
+        """백그라운드 스레드에서 터진 예외는 아무도 못 본다 — 상태로 남아야 한다."""
+        from .judge_assist import analyze_submission
+
+        with mock.patch(
+            'contests.judge_assist.collect_repo_context', side_effect=ValueError('boom')
+        ):
+            review = analyze_submission(self.submission, provider='google', model='m')
+
+        self.assertEqual(review.status, SubmissionReview.Status.FAILED)
+
+    def test_review_is_marked_stale_when_submission_changes(self):
+        review = self._analyze()
+        self.assertFalse(review.is_stale)
+
+        self.submission.title = '제목을 고쳤다'
+        self.submission.save()
+        review.refresh_from_db()
+        self.assertTrue(review.is_stale)
+
+    def test_participant_cannot_read_reviews(self):
+        """결선 점수와 같은 등급 — 참가자가 자기 프로젝트 평가를 미리 보면 안 된다."""
+        self._analyze()
+        self.client.force_authenticate(self.member)
+        res = self.client.get(f'/api/submissions/{self.submission.id}/reviews/')
+        self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_assigned_judge_can_read_reviews(self):
+        self._analyze()
+        self.client.force_authenticate(self.judge_user)
+        res = self.client.get(f'/api/submissions/{self.submission.id}/reviews/')
+        self.assertEqual(res.status_code, status.HTTP_200_OK, res.data)
+        self.assertEqual(len(res.data['reviews']), 1)
+        self.assertEqual(res.data['reviews'][0]['status'], 'done')
+
+    def test_judge_of_another_contest_cannot_read_reviews(self):
+        self._analyze()
+        other = make_contest(slug='other-hack')
+        outsider = User.objects.create_user('outsider', password='pw12345678')
+        Judge.objects.create(contest=other, user=outsider)
+        self.client.force_authenticate(outsider)
+        res = self.client.get(f'/api/submissions/{self.submission.id}/reviews/')
+        self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_only_organizer_can_trigger_analysis(self):
+        self.client.force_authenticate(self.judge_user)
+        res = self.client.post(f'/api/submissions/{self.submission.id}/analyze/')
+        self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_organizer_trigger_returns_pending_row_without_blocking(self):
+        """워커가 1개라 요청 안에서 LLM 을 기다리지 않는다 — 대기 행만 돌려준다."""
+        self.client.force_authenticate(self.organizer)
+        with mock.patch('contests.views.run_in_background') as background:
+            res = self.client.post(
+                f'/api/submissions/{self.submission.id}/analyze/',
+                {'provider': 'google', 'model': 'gemini-3.5-flash'},
+                format='json',
+            )
+        self.assertEqual(res.status_code, status.HTTP_202_ACCEPTED, res.data)
+        self.assertEqual(res.data['status'], 'pending')
+        self.assertTrue(background.called)
+
+    def test_batch_queues_every_submission_that_has_a_repo(self):
+        second = Team.objects.create(contest=self.contest, name='팀B')
+        Submission.objects.create(team=second, title='저장소 없음', repo_url='')
+        third = Team.objects.create(contest=self.contest, name='팀C')
+        Submission.objects.create(
+            team=third, title='있음', repo_url='https://github.com/o/r2'
+        )
+
+        self.client.force_authenticate(self.organizer)
+        with mock.patch('contests.views.run_in_background') as background:
+            res = self.client.post(
+                f'/api/contests/{self.contest.slug}/analyze_submissions/',
+                {'provider': 'google', 'model': 'gemini-3.5-flash'},
+                format='json',
+            )
+
+        self.assertEqual(res.status_code, status.HTTP_202_ACCEPTED, res.data)
+        self.assertEqual(res.data['queued'], 2)  # 저장소 없는 제출물은 건너뛴다
+        self.assertTrue(background.called)
+
+    def test_same_submission_can_be_analyzed_by_two_models(self):
+        """같은 제출물을 여러 모델로 나란히 비교하는 것이 이 기능의 목적 중 하나다."""
+        self._analyze()
+        self._analyze(provider='anthropic', model='claude-opus-5')
+        self.assertEqual(self.submission.reviews.count(), 2)
+
+
+class JudgeAssistRepoCollectionTests(ApiTestCase):
+    """저장소를 통째로 넣지 않는다 — 무엇을 고르고 무엇을 빼는지가 비용과 품질을 정한다."""
+
+    def test_lockfiles_and_vendor_directories_are_excluded(self):
+        from .judge_assist import _is_source
+
+        self.assertTrue(_is_source('src/App.tsx'))
+        self.assertTrue(_is_source('package.json'))
+        self.assertFalse(_is_source('package-lock.json'))
+        self.assertFalse(_is_source('node_modules/react/index.js'))
+        self.assertFalse(_is_source('backend/.venv/lib/thing.py'))
+        self.assertFalse(_is_source('contests/migrations/0001_initial.py'))
+        self.assertFalse(_is_source('docs/logo.png'))
+
+    def test_manifests_are_read_first(self):
+        """무엇으로 만들어졌는지 알려주는 파일이 상한에 잘려 나가면 안 된다."""
+        from .judge_assist import _priority
+
+        paths = ['deep/nested/module.py', 'requirements.txt', 'app.py']
+        self.assertEqual(sorted(paths, key=_priority)[0], 'requirements.txt')
+
+
+class GithubCommitSummaryTests(ApiTestCase):
+    """첫 커밋 시각. 표절 판정이 아니라 심사위원이 직접 확인할 사실 하나를 돌려준다."""
+
+    def setUp(self):
+        self.user = User.objects.create_user('judge2', password='pw12345678')
+        self.repo = 'https://github.com/octocat/Hello-World'
+
+    def get(self):
+        return self.client.get(f'/api/github/commits/?repo={self.repo}')
+
+    def test_first_commit_comes_from_the_last_page(self):
+        """GitHub 은 최신 커밋부터 준다 — 첫 커밋은 마지막 페이지에 있다."""
+        self.client.force_authenticate(self.user)
+        latest = [{'commit': {'author': {'date': '2026-09-04T10:00:00Z'}}}]
+        oldest = [{'commit': {'author': {'date': '2026-08-01T09:00:00Z'}}}]
+        link = (
+            '<https://api.github.com/repositories/1/commits?per_page=1&page=2>; rel="next", '
+            '<https://api.github.com/repositories/1/commits?per_page=1&page=42>; rel="last"'
+        )
+        with mock.patch('contests.github.urllib.request.urlopen') as urlopen:
+            urlopen.side_effect = [
+                fake_github_response(latest, {'Link': link}),
+                fake_github_response(oldest),
+            ]
+            res = self.get()
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK, res.data)
+        self.assertEqual(res.data['first_commit_at'], '2026-08-01T09:00:00Z')
+        self.assertEqual(res.data['latest_commit_at'], '2026-09-04T10:00:00Z')
+        # `Link` 의 마지막 페이지 번호가 곧 커밋 수다 (per_page=1 이므로).
+        self.assertEqual(res.data['total_commits'], 42)
+        # 커밋이 수천 개여도 왕복은 두 번뿐이다.
+        self.assertEqual(urlopen.call_count, 2)
+
+    def test_single_commit_repo_needs_only_one_call(self):
+        """Link 헤더가 없으면 페이지가 하나뿐이라는 뜻이다."""
+        self.client.force_authenticate(self.user)
+        only = [{'commit': {'author': {'date': '2026-09-03T01:00:00Z'}}}]
+        with mock.patch('contests.github.urllib.request.urlopen') as urlopen:
+            urlopen.return_value = fake_github_response(only)
+            res = self.get()
+
+        self.assertEqual(res.data['first_commit_at'], '2026-09-03T01:00:00Z')
+        self.assertEqual(res.data['total_commits'], 1)
+        self.assertEqual(urlopen.call_count, 1)
+
+    def test_empty_repository_reports_nothing_instead_of_failing(self):
+        """커밋이 없는 저장소도 있다. 분석·심사가 그것 때문에 막히면 안 된다."""
+        self.client.force_authenticate(self.user)
+        with mock.patch('contests.github.urllib.request.urlopen') as urlopen:
+            urlopen.return_value = fake_github_response([])
+            res = self.get()
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK, res.data)
+        self.assertIsNone(res.data['first_commit_at'])
+        self.assertEqual(res.data['total_commits'], 0)
+
+    def test_committer_date_is_used_when_author_date_is_missing(self):
+        self.client.force_authenticate(self.user)
+        payload = [{'commit': {'committer': {'date': '2026-09-02T05:00:00Z'}}}]
+        with mock.patch('contests.github.urllib.request.urlopen') as urlopen:
+            urlopen.return_value = fake_github_response(payload)
+            res = self.get()
+
+        self.assertEqual(res.data['first_commit_at'], '2026-09-02T05:00:00Z')
+
+    def test_anonymous_is_rejected(self):
+        self.assertEqual(self.get().status_code, status.HTTP_401_UNAUTHORIZED)

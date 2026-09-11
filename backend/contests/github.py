@@ -34,6 +34,9 @@ TIMEOUT_SECONDS = 10
 MAX_FILES = 500
 # owner/repo 는 URL 경로에 그대로 들어가므로 GitHub 이 실제로 허용하는 문자만 통과시킨다.
 NAME_RE = re.compile(r'^[A-Za-z0-9][A-Za-z0-9_.-]*$')
+# 페이지네이션 `Link` 헤더에서 마지막 페이지 번호만 뽑는다. URL 을 그대로 따라가지 않고 번호만
+# 가져와 경로를 서버가 다시 조립한다 — 이 모듈이 임의 URL 을 여는 통로가 되지 않게 하는 원칙.
+LAST_PAGE_RE = re.compile(r'[?&]page=(\d+)>;\s*rel="last"')
 
 
 ERROR_DETAIL = {
@@ -72,8 +75,12 @@ def parse_github_repo(url):
     return owner, repo
 
 
-def github_get(path):
-    """`api.github.com{path}` 를 GET 해 JSON 을 돌려준다. 결과는 캐시된다."""
+def github_fetch(path):
+    """`api.github.com{path}` 를 GET 해 `{'payload', 'link'}` 를 돌려준다. 결과는 캐시된다.
+
+    `link` 는 페이지네이션 헤더 원문이다. 커밋 목록에서 **첫 커밋**을 찾으려면 마지막 페이지가
+    몇 번인지 알아야 하는데, GitHub 은 그 정보를 본문이 아니라 `Link` 헤더로만 준다.
+    """
     cache_key = f'github:{path}'
     cached = cache.get(cache_key)
     if cached is not None:
@@ -91,6 +98,7 @@ def github_get(path):
     try:
         with urllib.request.urlopen(request, timeout=TIMEOUT_SECONDS) as response:
             payload = json.loads(response.read().decode('utf-8'))
+            link = (getattr(response, 'headers', None) or {}).get('Link') or ''
     except urllib.error.HTTPError as exc:
         if exc.code == 404:
             raise GithubUpstreamError('not-found', status.HTTP_404_NOT_FOUND) from exc
@@ -100,8 +108,14 @@ def github_get(path):
     except (urllib.error.URLError, TimeoutError, ValueError) as exc:
         raise GithubUpstreamError('error', status.HTTP_502_BAD_GATEWAY) from exc
 
-    cache.set(cache_key, payload, settings.GITHUB_CACHE_SECONDS)
-    return payload
+    entry = {'payload': payload, 'link': link}
+    cache.set(cache_key, entry, settings.GITHUB_CACHE_SECONDS)
+    return entry
+
+
+def github_get(path):
+    """본문만 필요한 대부분의 호출이 쓰는 얇은 래퍼."""
+    return github_fetch(path)['payload']
 
 
 def decode_base64_content(payload):
@@ -121,6 +135,7 @@ class GithubProxyView(APIView):
     - `readme` → `{"content": "..."}`  (base64 는 서버가 푼다)
     - `tree`   → `{"files": [{"path": ...}], "truncated": bool}`  (`branch` 필요)
     - `file`   → `{"content": "..."}`  (`path` 필요)
+    - `commits`→ `{"first_commit_at": ..., "latest_commit_at": ..., "total_commits": N}`
     """
 
     # 공개 오픈 프록시가 되지 않도록 로그인한 사용자로 제한한다. 심사 도구는 어차피
@@ -167,6 +182,39 @@ class GithubProxyView(APIView):
             'truncated': bool(data.get('truncated')) or len(files) > MAX_FILES,
         }
 
+    def _get_commits(self, request, owner, repo):
+        """첫 커밋·마지막 커밋 시각과 커밋 수.
+
+        표절 탐지가 아니다. 교내 대회에서 실제로 확인하고 싶은 것은 **"대회 시작 전에 이미
+        만들어 둔 프로젝트를 냈는가"**이고, 그건 첫 커밋 시각 하나로 드러난다. 판정은 하지
+        않는다 — 심사위원이 직접 보고 판단할 사실만 돌려준다(포크·이관·squash 처럼 시각이
+        실제와 달라지는 경우가 있어 자동 판정은 위험하다).
+
+        `per_page=1` 로 한 건만 받고 `Link` 헤더의 마지막 페이지 번호를 커밋 수로 쓴다.
+        커밋이 수천 개인 저장소에서도 왕복 두 번이면 끝난다.
+        """
+        path = f'/repos/{owner}/{repo}/commits?per_page=1'
+        entry = github_fetch(path)
+        commits = entry['payload']
+        if not isinstance(commits, list) or not commits:
+            return {'first_commit_at': None, 'latest_commit_at': None, 'total_commits': 0}
+
+        latest = commits[0]
+        first = latest
+        total = 1
+        match = LAST_PAGE_RE.search(entry['link'] or '')
+        if match:
+            total = int(match.group(1))
+            last_page = github_get(f'{path}&page={total}')
+            if isinstance(last_page, list) and last_page:
+                first = last_page[-1]
+
+        return {
+            'first_commit_at': _commit_date(first),
+            'latest_commit_at': _commit_date(latest),
+            'total_commits': total,
+        }
+
     def _get_file(self, request, owner, repo):
         path = request.query_params.get('path', '')
         segments = [s for s in path.split('/') if s]
@@ -177,3 +225,15 @@ class GithubProxyView(APIView):
         return {'content': decode_base64_content(
             github_get(f'/repos/{owner}/{repo}/contents/{quoted}')
         )}
+
+
+def _commit_date(commit):
+    """커밋이 작성된 시각. 작성자 시각이 없으면 커미터 시각으로 떨어진다."""
+    if not isinstance(commit, dict):
+        return None
+    detail = commit.get('commit') or {}
+    for who in ('author', 'committer'):
+        date = (detail.get(who) or {}).get('date')
+        if date:
+            return date
+    return None

@@ -17,6 +17,14 @@ export interface GithubFile {
   type: string;
 }
 
+/** 저장소의 커밋 이력 요약. 첫 커밋 시각이 이 묶음의 목적이다. */
+export interface GithubCommitSummary {
+  /** 가장 오래된 커밋 시각(ISO). 커밋이 없으면 null. */
+  first_commit_at: string | null;
+  latest_commit_at: string | null;
+  total_commits: number;
+}
+
 export type GithubErrorKind = 'not-found' | 'rate-limit' | 'error';
 
 export class GithubApiError extends Error {
@@ -80,6 +88,17 @@ export function fetchTree(
 ): Promise<{ files: GithubFile[]; truncated: boolean }> {
   // 블롭만 남기고 개수 상한을 적용하는 것도 서버가 한다 (캐시에 들어가는 크기를 줄인다).
   return proxyGet('tree', { repo: repoUrl(ref), branch });
+}
+
+/**
+ * 첫 커밋 시각·커밋 수.
+ *
+ * 표절 탐지가 아니다 — 교내 대회에서 실제로 확인하고 싶은 것은 "대회 시작 전에 이미 만들어 둔
+ * 프로젝트인가"이고, 화면은 **판정 대신 사실만** 보여준다. 포크·이관·squash 로 시각이 실제와
+ * 달라질 수 있어 자동 판정은 두지 않는다.
+ */
+export function fetchCommitSummary(ref: GithubRepoRef): Promise<GithubCommitSummary> {
+  return proxyGet('commits', { repo: repoUrl(ref) });
 }
 
 export async function fetchFileContent(ref: GithubRepoRef, path: string): Promise<string> {

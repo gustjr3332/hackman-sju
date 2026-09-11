@@ -1,6 +1,12 @@
 import { useEffect, useState } from 'react';
-import { extractMyProfile, fetchLlmProviders, fetchMyProfile, updateMyProfile } from './api';
-import type { LlmProvider, Profile } from './types';
+import {
+  extractMyProfile,
+  fetchLlmProviders,
+  fetchMyProfile,
+  fetchTechStacks,
+  updateMyProfile,
+} from './api';
+import type { LlmProvider, Profile, TechStack } from './types';
 
 const ROLE_LABEL: Record<string, string> = {
   frontend: '프론트엔드',
@@ -12,6 +18,12 @@ const ROLE_LABEL: Record<string, string> = {
   ai: 'AI',
 };
 
+const CATEGORY_LABEL: Record<string, string> = {
+  language: '언어',
+  framework: '프레임워크 · 라이브러리',
+  tool: '도구 · 인프라',
+};
+
 const LEVEL_LABEL: Record<string, string> = {
   '': '미입력',
   beginner: '입문',
@@ -19,7 +31,8 @@ const LEVEL_LABEL: Record<string, string> = {
   advanced: '숙련',
 };
 
-/** 쉼표로 구분한 문자열 ↔ 태그 배열. 참가자가 직접 고칠 때 가장 손이 덜 간다. */
+/** 쉼표로 구분한 문자열 → 태그 배열. 관심 분야에만 쓴다 — 기술 스택은 정규 목록에서 고른다
+ * (자유 타이핑이면 react/리액트/React.js 가 다른 태그가 되어 매칭이 조용히 망가진다). */
 function toTags(text: string): string[] {
   return [...new Set(text.split(',').map((t) => t.trim().toLowerCase()).filter(Boolean))];
 }
@@ -41,7 +54,9 @@ export function ProfilePanel({ onChanged }: ProfilePanelProps) {
   const [providers, setProviders] = useState<LlmProvider[]>([]);
   const [provider, setProvider] = useState('');
   const [intro, setIntro] = useState('');
-  const [skillsText, setSkillsText] = useState('');
+  const [stacks, setStacks] = useState<TechStack[]>([]);
+  const [skills, setSkills] = useState<string[]>([]);
+  const [stackQuery, setStackQuery] = useState('');
   const [interestsText, setInterestsText] = useState('');
   const [githubUrl, setGithubUrl] = useState('');
   const [roles, setRoles] = useState<string[]>([]);
@@ -53,13 +68,17 @@ export function ProfilePanel({ onChanged }: ProfilePanelProps) {
     setProfile(next);
     setIntro(next.intro);
     setGithubUrl(next.github_url);
-    setSkillsText(next.skills.join(', '));
+    setSkills(next.skills);
     setInterestsText(next.interests.join(', '));
     setRoles(next.roles);
   }
 
   useEffect(() => {
     fetchMyProfile().then(apply).catch(() => setStatus('프로필을 불러오지 못했습니다'));
+    // 목록은 백엔드가 정본이다 — 프론트에 같은 목록을 두면 반드시 어긋난다.
+    fetchTechStacks()
+      .then(({ stacks: list }) => setStacks(list))
+      .catch(() => setStacks([]));
     // 키가 설정된 제공사가 없으면 빈 배열이 온다 — 그때는 자동 정리 UI 자체를 숨긴다.
     fetchLlmProviders()
       .then(({ providers: list }) => {
@@ -77,7 +96,7 @@ export function ProfilePanel({ onChanged }: ProfilePanelProps) {
         await updateMyProfile({
           intro,
           github_url: githubUrl.trim(),
-          skills: toTags(skillsText),
+          skills,
           interests: toTags(interestsText),
           roles,
           looking_for_team: profile?.looking_for_team ?? true,
@@ -184,15 +203,24 @@ export function ProfilePanel({ onChanged }: ProfilePanelProps) {
         </div>
       )}
 
-      <label className="profile-field">
-        <span>기술 스택 (쉼표로 구분)</span>
-        <input
-          type="text"
-          value={skillsText}
-          onChange={(e) => setSkillsText(e.target.value)}
-          placeholder="react, python, figma"
-        />
-      </label>
+      <StackPicker
+        stacks={stacks}
+        selected={skills}
+        query={stackQuery}
+        onQuery={setStackQuery}
+        onToggle={(slug) =>
+          setSkills((prev) =>
+            prev.includes(slug) ? prev.filter((s) => s !== slug) : [...prev, slug]
+          )
+        }
+      />
+
+      {profile.other_skills.length > 0 && (
+        <p className="empty-hint">
+          목록에 없어 그대로 보관 중: {profile.other_skills.join(', ')} — 운영자가 정규 목록에
+          추가하면 자동으로 잡힙니다.
+        </p>
+      )}
 
       <label className="profile-field">
         <span>관심 분야 (쉼표로 구분)</span>
@@ -238,6 +266,107 @@ export function ProfilePanel({ onChanged }: ProfilePanelProps) {
         {profile.level && <span className="empty-hint">숙련도: {LEVEL_LABEL[profile.level]}</span>}
       </div>
       {status && <p className="empty-hint">{status}</p>}
+    </div>
+  );
+}
+
+interface StackPickerProps {
+  stacks: TechStack[];
+  selected: string[];
+  query: string;
+  onQuery: (value: string) => void;
+  onToggle: (slug: string) => void;
+}
+
+/**
+ * 정규 목록에서 기술 스택을 여러 개 고르는 컨트롤.
+ *
+ * 자유 타이핑 입력을 대체한다 — 오타와 표기 흔들림이 그대로 태그가 되면 `react` / `리액트` /
+ * `React.js` 가 전부 다른 스택으로 세어져 매칭이 조용히 망가진다. 목록이 100개가 넘으므로
+ * **스크롤 영역 안에서 고르고**, 검색으로 좁힐 수 있게 한다. 고른 것은 위에 따로 모아 보여
+ * 줘서 스크롤을 내리지 않아도 현재 선택을 알 수 있다.
+ */
+function StackPicker({ stacks, selected, query, onQuery, onToggle }: StackPickerProps) {
+  const needle = query.trim().toLowerCase();
+  // 별칭까지 훑는다 — 한국어로 치는 참가자가 `파이썬`으로 `Python` 을 찾지 못하면 목록이
+  // 있어도 고르지 못한다.
+  const matched = needle
+    ? stacks.filter(
+        (s) =>
+          s.name.toLowerCase().includes(needle) ||
+          s.slug.includes(needle) ||
+          (s.aliases ?? []).some((a) => a.toLowerCase().includes(needle))
+      )
+    : stacks;
+
+  const groups = ['language', 'framework', 'tool'].map((category) => ({
+    category,
+    items: matched.filter((s) => s.category === category),
+  }));
+
+  if (stacks.length === 0) {
+    return (
+      <div className="profile-field">
+        <span>기술 스택</span>
+        <p className="empty-hint">스택 목록을 불러오지 못했습니다.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="profile-field stack-picker">
+      <span>기술 스택 (여러 개 선택)</span>
+
+      <div className="stack-selected">
+        {selected.length === 0 && <span className="empty-hint">아직 고르지 않았습니다</span>}
+        {selected.map((slug) => {
+          const stack = stacks.find((s) => s.slug === slug);
+          return (
+            <button
+              key={slug}
+              type="button"
+              className="stack-chip removable"
+              onClick={() => onToggle(slug)}
+              aria-label={`${stack?.name ?? slug} 빼기`}
+            >
+              {stack?.name ?? slug} ×
+            </button>
+          );
+        })}
+      </div>
+
+      <input
+        type="search"
+        value={query}
+        onChange={(e) => onQuery(e.target.value)}
+        placeholder="스택 검색 (예: react, 파이썬)"
+        autoComplete="off"
+      />
+
+      <div className="stack-list">
+        {groups.map(({ category, items }) =>
+          items.length === 0 ? null : (
+            <fieldset key={category}>
+              <legend>{CATEGORY_LABEL[category]}</legend>
+              {items.map((stack) => (
+                <label key={stack.slug}>
+                  <input
+                    type="checkbox"
+                    checked={selected.includes(stack.slug)}
+                    onChange={() => onToggle(stack.slug)}
+                  />
+                  {stack.name}
+                </label>
+              ))}
+            </fieldset>
+          )
+        )}
+        {matched.length === 0 && (
+          <p className="empty-hint">
+            검색 결과가 없습니다. 목록에 없는 스택은 운영자가 추가할 수 있습니다.
+          </p>
+        )}
+      </div>
     </div>
   );
 }

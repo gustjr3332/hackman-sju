@@ -4,7 +4,18 @@ from django.contrib.auth import get_user_model
 from rest_framework import serializers
 from rest_framework.validators import UniqueTogetherValidator
 
-from .models import Award, Contest, Judge, Participant, Profile, Score, Submission, Team
+from .models import (
+    Award,
+    Contest,
+    Judge,
+    Participant,
+    Profile,
+    Score,
+    Submission,
+    SubmissionReview,
+    Team,
+    TechStack,
+)
 
 User = get_user_model()
 
@@ -212,11 +223,74 @@ class ProfileSerializer(serializers.ModelSerializer):
     class Meta:
         model = Profile
         fields = [
-            'username', 'intro', 'github_url', 'skills', 'interests', 'roles', 'level',
-            'looking_for_team', 'extraction_status', 'extraction_error',
+            'username', 'intro', 'github_url', 'skills', 'other_skills', 'interests',
+            'roles', 'level', 'looking_for_team', 'extraction_status', 'extraction_error',
             'extracted_by', 'extracted_at', 'updated_at',
         ]
         read_only_fields = [
-            'extraction_status', 'extraction_error', 'extracted_by',
+            # other_skills 는 자동 정리가 정규 목록에 매핑하지 못한 원문이다. 참가자가 직접
+            # 타이핑하는 경로를 두지 않는 것이 정규 목록 작업의 목적이라 읽기 전용이다.
+            'other_skills', 'extraction_status', 'extraction_error', 'extracted_by',
             'extracted_at', 'updated_at',
         ]
+
+    def validate_skills(self, value):
+        """정규 목록에 있는 활성 스택만 받는다.
+
+        프론트가 목록에서 고르게 하지만, 서버가 한 번 더 거른다 — 목록 밖 값이 섞여 들어오면
+        매칭이 다시 조용히 망가지기 때문이다(그걸 막으려고 만든 기능이다).
+        """
+        known = set(
+            TechStack.objects.filter(is_active=True).values_list('slug', flat=True)
+        )
+        cleaned, unknown = [], []
+        for raw in value or []:
+            slug = str(raw).strip().lower()
+            if slug in known:
+                if slug not in cleaned:
+                    cleaned.append(slug)
+            elif slug:
+                unknown.append(slug)
+        if unknown:
+            raise serializers.ValidationError(
+                f'목록에 없는 기술 스택입니다: {", ".join(unknown[:5])}'
+            )
+        return cleaned
+
+
+class TechStackSerializer(serializers.ModelSerializer):
+    """정규 기술 스택 한 건. 프로필 화면의 선택 목록이 이걸 그대로 쓴다.
+
+    별칭(aliases)도 함께 내려보낸다 — 화면의 검색창이 `파이썬`으로 `Python` 을, `리액트`로
+    `React` 를 찾을 수 있어야 하기 때문이다. 표시 이름만으로 검색하면 한국어로 치는 참가자가
+    목록에 있는 스택을 못 찾고, 그러면 정규 목록을 만든 의미가 반쯤 사라진다. 120여 건이라
+    응답 크기도 문제가 되지 않는다.
+    """
+
+    class Meta:
+        model = TechStack
+        fields = ['slug', 'name', 'category', 'aliases']
+
+
+class SubmissionReviewSerializer(serializers.ModelSerializer):
+    """심사 보조 분석 결과. 운영자·배정된 심사위원만 읽는다(참가자에게는 보이지 않는다).
+
+    전부 읽기 전용이다 — 이 행은 분석기가 쓰고 화면은 보기만 한다.
+    """
+
+    is_stale = serializers.BooleanField(read_only=True)
+    provider_label = serializers.SerializerMethodField()
+
+    class Meta:
+        model = SubmissionReview
+        fields = [
+            'id', 'submission', 'provider', 'provider_label', 'model', 'status',
+            'summary', 'findings', 'stack', 'cited_paths', 'truncated', 'files_read',
+            'input_tokens', 'output_tokens', 'error', 'is_stale', 'created_at', 'updated_at',
+        ]
+        read_only_fields = fields
+
+    def get_provider_label(self, obj):
+        from .llm.base import PROVIDERS
+
+        return PROVIDERS.get(obj.provider, {}).get('label', obj.provider)

@@ -121,7 +121,10 @@ export interface Profile {
   intro: string;
   /** 개인 GitHub 주소. 태그만으로 안 보이는 실제 결과물을 팀이 직접 확인하는 통로. */
   github_url: string;
+  /** 정규 목록(`TechStack.slug`)에서 고른 것만 들어간다. 서버가 목록 밖 값을 거절한다. */
   skills: string[];
+  /** 자동 정리가 목록에 매핑하지 못한 원문. 읽기 전용 — 버리지 않고 보여주기만 한다. */
+  other_skills: string[];
   interests: string[];
   roles: string[];
   level: '' | 'beginner' | 'intermediate' | 'advanced';
@@ -130,6 +133,53 @@ export interface Profile {
   extraction_error: string;
   extracted_by: string;
   extracted_at: string | null;
+  updated_at: string;
+}
+
+/** 정규 기술 스택 한 건. 목록은 백엔드가 정본이고(`/api/tech-stacks/`) 화면은 받아 쓰기만 한다. */
+export interface TechStack {
+  slug: string;
+  name: string;
+  category: 'language' | 'framework' | 'tool';
+  /** 표기 흔들림과 한국어 통용 표기. 검색이 `파이썬`으로 `Python` 을 찾게 하는 데 쓴다. */
+  aliases: string[];
+}
+
+/** 심사 보조 분석의 항목 하나. 근거 파일 경로가 붙지 않는 주장은 만들지 않는 것이 전제다. */
+export interface ReviewFinding {
+  /** implemented = 동작하는 코드가 있음, shell = 껍데기만 있음, note = 알아둘 사실 */
+  kind: 'implemented' | 'shell' | 'note';
+  title: string;
+  detail: string;
+  paths: string[];
+}
+
+/**
+ * 제출 저장소 사전 분석 1건. 운영자·배정된 심사위원만 볼 수 있다.
+ *
+ * **점수 필드가 없다** — 제안 점수를 띄우면 심사위원이 거기 닻을 내려 결국 모델이 채점하는
+ * 것과 같아진다. 화면도 점수처럼 보이는 요약(별점·등급 등)을 만들지 않는다.
+ */
+export interface SubmissionReview {
+  id: number;
+  submission: number;
+  provider: string;
+  provider_label: string;
+  model: string;
+  status: 'pending' | 'done' | 'failed';
+  summary: string;
+  findings: ReviewFinding[];
+  stack: string[];
+  cited_paths: string[];
+  /** 저장소가 커서 일부만 읽었는지. 조용히 자르지 않고 화면에 표시한다. */
+  truncated: boolean;
+  files_read: number;
+  input_tokens: number;
+  output_tokens: number;
+  error: string;
+  /** 분석 이후 제출물이 바뀌었는지. 바뀌었으면 다시 돌려야 한다. */
+  is_stale: boolean;
+  created_at: string;
   updated_at: string;
 }
 

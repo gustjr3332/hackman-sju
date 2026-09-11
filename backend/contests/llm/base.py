@@ -44,9 +44,12 @@ PROVIDERS = {
     },
 }
 
-# 호출 제한 시간(초). 제공사가 응답하지 않으면 워커가 그동안 통째로 묶인다 — gunicorn 워커가
-# 1개(`Procfile` 에 `-w` 없음)라 한 요청이 멈추면 스코어보드 폴링까지 전부 멈춘다.
-# 프로필 추출은 짧은 글에서 태그를 뽑는 일이라 정상이면 수 초면 끝난다.
+# 요청 경로에서 부를 때의 제한 시간(초). 제공사가 응답하지 않으면 워커가 그동안 통째로
+# 묶인다 — gunicorn 워커가 1개(`Procfile` 에 `-w` 없음)라 한 요청이 멈추면 스코어보드
+# 폴링까지 전부 멈춘다. 프로필 추출은 짧은 글에서 태그를 뽑는 일이라 정상이면 수 초면 끝난다.
+#
+# 요청 경로 밖(심사 보조 분석은 백그라운드 스레드에서 돈다)에서는 호출부가 `timeout` 으로
+# 더 길게 잡는다. 저장소 수만 토큰을 읽는 호출은 30초로는 정상 응답도 못 받는다.
 REQUEST_TIMEOUT_SECONDS = 30
 
 
@@ -67,8 +70,9 @@ def available_models():
     ]
 
 
-def complete(prompt, provider=None, model=None, max_output_tokens=2048):
+def complete(prompt, provider=None, model=None, max_output_tokens=2048, timeout=None):
     """프롬프트 하나를 보내고 텍스트를 받는다. 제공사별로 다른 것은 여기 아래뿐이다."""
+    timeout = timeout or REQUEST_TIMEOUT_SECONDS
     if provider is None:
         candidates = available_models()
         if not candidates:
@@ -82,19 +86,19 @@ def complete(prompt, provider=None, model=None, max_output_tokens=2048):
     model = model or PROVIDERS[provider]['default_model']
 
     if provider == 'anthropic':
-        return _anthropic(prompt, api_key, model, max_output_tokens)
+        return _anthropic(prompt, api_key, model, max_output_tokens, timeout)
     if provider == 'openai':
-        return _openai(prompt, api_key, model, max_output_tokens)
-    return _google(prompt, api_key, model, max_output_tokens)
+        return _openai(prompt, api_key, model, max_output_tokens, timeout)
+    return _google(prompt, api_key, model, max_output_tokens, timeout)
 
 
-def _anthropic(prompt, api_key, model, max_output_tokens):
+def _anthropic(prompt, api_key, model, max_output_tokens, timeout):
     try:
         import anthropic
     except ImportError as exc:
         raise LlmError('anthropic SDK 가 설치되지 않았습니다.') from exc
     try:
-        client = anthropic.Anthropic(api_key=api_key, timeout=REQUEST_TIMEOUT_SECONDS)
+        client = anthropic.Anthropic(api_key=api_key, timeout=timeout)
         res = client.messages.create(
             model=model,
             max_tokens=max_output_tokens,
@@ -106,13 +110,13 @@ def _anthropic(prompt, api_key, model, max_output_tokens):
         raise LlmError(str(exc)) from exc
 
 
-def _openai(prompt, api_key, model, max_output_tokens):
+def _openai(prompt, api_key, model, max_output_tokens, timeout):
     try:
         from openai import OpenAI
     except ImportError as exc:
         raise LlmError('openai SDK 가 설치되지 않았습니다.') from exc
     try:
-        client = OpenAI(api_key=api_key, timeout=REQUEST_TIMEOUT_SECONDS)
+        client = OpenAI(api_key=api_key, timeout=timeout)
         res = client.responses.create(
             model=model, input=prompt, max_output_tokens=max_output_tokens
         )
@@ -127,7 +131,7 @@ def _openai(prompt, api_key, model, max_output_tokens):
         raise LlmError(str(exc)) from exc
 
 
-def _google(prompt, api_key, model, max_output_tokens):
+def _google(prompt, api_key, model, max_output_tokens, timeout):
     try:
         from google import genai
     except ImportError as exc:
@@ -136,7 +140,7 @@ def _google(prompt, api_key, model, max_output_tokens):
         client = genai.Client(
             api_key=api_key,
             # google-genai 는 밀리초 단위로 받는다.
-            http_options={'timeout': REQUEST_TIMEOUT_SECONDS * 1000},
+            http_options={'timeout': timeout * 1000},
         )
         res = client.models.generate_content(
             model=model,
@@ -144,6 +148,17 @@ def _google(prompt, api_key, model, max_output_tokens):
             config={'max_output_tokens': max_output_tokens},
         )
         usage = getattr(res, 'usage_metadata', None)
+        # 빈 응답은 원인을 알려주고 실패해야 한다. 특히 출력 상한이 작으면 본문이 나오기 전에
+        # 예산이 다 쓰여 `text` 가 비고, 그대로 넘기면 "JSON 을 찾지 못했습니다"라는 엉뚱한
+        # 메시지만 남아 무엇을 고쳐야 할지 알 수 없다.
+        if not (res.text or '').strip():
+            reasons = [
+                str(getattr(c, 'finish_reason', '')) for c in (res.candidates or [])
+            ]
+            raise LlmError(
+                '빈 응답 (finish_reason: {}). 출력 상한이 모자라면 max_output_tokens 를 '
+                '늘려야 한다.'.format(', '.join(r for r in reasons if r) or '알 수 없음')
+            )
         return LlmResult(
             res.text or '',
             getattr(usage, 'prompt_token_count', 0) or 0,

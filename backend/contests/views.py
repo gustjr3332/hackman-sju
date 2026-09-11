@@ -13,9 +13,22 @@ from rest_framework.exceptions import PermissionDenied
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from .judge_assist import analyze_contest, analyze_submission, ensure_pending_review, run_in_background
+from . import tech_stacks
 from .llm import available_models
 from .matching import recommend_teams_for_user, recommend_users_for_team
-from .models import Award, Contest, Judge, Participant, Profile, Score, Submission, Team
+from .models import (
+    Award,
+    Contest,
+    Judge,
+    Participant,
+    Profile,
+    Score,
+    Submission,
+    SubmissionReview,
+    Team,
+    TechStack,
+)
 from .profile_extract import extract_profile
 from .permissions import (
     IsAssignedJudge,
@@ -33,8 +46,10 @@ from .serializers import (
     RegisterSerializer,
     ScoreboardEntrySerializer,
     ScoreSerializer,
+    SubmissionReviewSerializer,
     SubmissionSerializer,
     TeamSerializer,
+    TechStackSerializer,
 )
 
 # 대회 상태별 허용 동작. 프론트엔드 `src/rules.ts`와 동일한 규칙을 유지한다.
@@ -230,6 +245,42 @@ class ContestViewSet(viewsets.ModelViewSet):
         invalidate_scoreboard(contest.slug)
         return Response(ContestSerializer(contest, context=self.get_serializer_context()).data)
 
+    @action(detail=True, methods=['post'], permission_classes=[IsOrganizer])
+    def analyze_submissions(self, request, slug=None):
+        """이 대회의 제출물 전체를 한 모델로 분석한다 (운영자 전용, 심사 전에 한 번).
+
+        저장소 주소가 없는 제출물은 건너뛴다. 순차로 돌기 때문에 20팀이면 수 분 걸리지만,
+        백그라운드 스레드에서 도는 동안에도 서비스는 그대로 응답한다. 진행 상황은 각 제출물의
+        `reviews` 로 확인한다 — 여기서는 '분석 중' 행만 만들어 바로 돌려준다.
+        """
+        contest = self.get_object()
+        provider = request.data.get('provider') or None
+        model = request.data.get('model') or None
+        submissions = list(
+            Submission.objects.filter(team__contest=contest).exclude(repo_url='')
+        )
+        if not submissions:
+            return Response(
+                {'detail': '분석할 저장소가 등록된 제출물이 없습니다.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        pending = [ensure_pending_review(s, provider, model) for s in submissions]
+        if not pending[0].provider:
+            return Response(
+                {'detail': '설정된 LLM API 키가 없습니다.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        run_in_background(analyze_contest, contest, pending[0].provider, pending[0].model)
+        return Response(
+            {
+                'queued': len(pending),
+                'provider': pending[0].provider,
+                'model': pending[0].model,
+                'reviews': SubmissionReviewSerializer(pending, many=True).data,
+            },
+            status=status.HTTP_202_ACCEPTED,
+        )
+
 
 class TeamViewSet(viewsets.ModelViewSet):
     serializer_class = TeamSerializer
@@ -355,6 +406,44 @@ class SubmissionViewSet(viewsets.ModelViewSet):
         ensure_contest_status(instance.team.contest, SUBMISSION_STATUSES, self.SUBMISSION_LOCKED_MESSAGE)
         instance.delete()
         invalidate_scoreboard(contest_id)
+
+    @action(detail=True, methods=['post'], permission_classes=[IsOrganizer])
+    def analyze(self, request, pk=None):
+        """이 제출물 하나를 지정한 모델로 분석한다 (운영자 전용).
+
+        같은 제출물을 여러 모델로 돌려 나란히 비교하는 것이 이 엔드포인트의 용도다.
+        분석은 백그라운드 스레드에서 돌고 여기서는 '분석 중' 행만 돌려준다 — 워커가 1개라
+        LLM 호출을 요청 안에서 기다리면 그동안 서비스 전체가 멈춘다.
+        """
+        submission = self.get_object()
+        review = ensure_pending_review(
+            submission,
+            provider=request.data.get('provider') or None,
+            model=request.data.get('model') or None,
+        )
+        if not review.provider:
+            return Response(
+                {'detail': '설정된 LLM API 키가 없습니다.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        run_in_background(analyze_submission, submission, review.provider, review.model)
+        return Response(
+            SubmissionReviewSerializer(review).data, status=status.HTTP_202_ACCEPTED
+        )
+
+    @action(detail=True, methods=['get'], permission_classes=[permissions.IsAuthenticated])
+    def reviews(self, request, pk=None):
+        """이 제출물의 분석 결과 전부 (운영자·배정된 심사위원 전용).
+
+        참가자에게는 보이지 않는다 — 결선 점수와 같은 등급으로 다룬다. 자기 프로젝트에 대한
+        평가를 참가자가 미리 보면 안 된다.
+        """
+        submission = self.get_object()
+        contest = submission.team.contest
+        if not (request.user.is_staff or is_contest_judge(contest, request.user)):
+            raise PermissionDenied('심사위원과 운영자만 볼 수 있습니다.')
+        reviews = submission.reviews.select_related('submission')
+        return Response({'reviews': SubmissionReviewSerializer(reviews, many=True).data})
 
 
 class JudgeViewSet(viewsets.ModelViewSet):
@@ -500,6 +589,26 @@ class ProfileExtractView(APIView):
             model=request.data.get('model') or None,
         )
         return Response(ProfileSerializer(profile).data)
+
+
+class TechStackListView(APIView):
+    """정규 기술 스택 목록. 프로필의 선택 UI 가 이걸 그대로 쓴다.
+
+    목록은 백엔드가 정본이다 — 파이썬과 TypeScript 양쪽에 목록을 두면 반드시 어긋난다.
+    프로필 화면이 열릴 때마다 읽히므로 캐시한다(낡아 봐야 방금 추가한 태그가 몇 분간 안 보이는
+    정도라, 권한 판정 캐시를 보류한 이유와는 위험의 성격이 다르다).
+    """
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        cached = cache.get(tech_stacks.LIST_CACHE_KEY)
+        if cached is None:
+            cached = TechStackSerializer(
+                TechStack.objects.filter(is_active=True), many=True
+            ).data
+            cache.set(tech_stacks.LIST_CACHE_KEY, cached, tech_stacks.CACHE_SECONDS)
+        return Response({'stacks': cached})
 
 
 class LlmModelsView(APIView):
