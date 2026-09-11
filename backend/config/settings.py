@@ -114,10 +114,15 @@ if os.getenv('DATABASE_URL'):
     # 풀러는 세션 모드(포트 5432)를 전제로 한다 - 일반 Postgres 와 동작이 같아
     # migrate 와 서버 사이드 커서가 그대로 돈다. 트랜잭션 모드(6543)로 바꾸려면
     # disable_server_side_cursors=True 가 함께 필요하다.
+    #
+    # ssl_require 는 Postgres URL 에만 건다. 테스트를 SQLite 로 돌리는 경로
+    # (DEVELOPMENT.md 「백엔드 테스트」)에서 sqlite3 드라이버가 sslmode 인자를 받고
+    # TypeError 로 죽기 때문이다.
+    _database_url = os.environ['DATABASE_URL']
     DATABASES = {'default': dj_database_url.parse(
-        os.environ['DATABASE_URL'],
+        _database_url,
         conn_max_age=0,
-        ssl_require=True,
+        ssl_require=not _database_url.startswith('sqlite'),
     )}
 else:
     DATABASES = {

@@ -7,7 +7,10 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-webclaude}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-webclaude}
     ports:
-      - "5432:5432"
+      # 호스트 쪽 포트는 바꿀 수 있게 둔다. Windows 는 5430~5529 를 Hyper-V 예약 범위로
+      # 잡아 두는 일이 있어 5432 바인딩이 거부된다(DEVELOPMENT.md 트러블슈팅 참고).
+      # 컨테이너 안쪽은 항상 5432 다.
+      - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
 
