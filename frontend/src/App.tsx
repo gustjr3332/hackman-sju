@@ -11,9 +11,12 @@ import {
 import { AuthPanel } from './AuthPanel';
 import { ContestDetail } from './ContestDetail';
 import { ContestForm } from './ContestForm';
-import { STATUS_LABEL } from './labels';
+import { Gallery } from './Gallery';
+import { STATUS_LABEL, STATUS_ORDER } from './labels';
+import { ProjectDetail } from './ProjectDetail';
+import { navigate, paths, useRoute } from './router';
 import { ThemeToggle } from './ThemeToggle';
-import type { Contest } from './types';
+import type { Contest, ContestStatus } from './types';
 
 /**
  * 첫 응답이 이 시간 안에 오면 아무 안내도 띄우지 않는다. 넘어가면 서버가 잠들어 있다고 보고
@@ -23,7 +26,11 @@ const WAKE_HINT_DELAY_MS = 2500;
 
 export default function App() {
   const [contests, setContests] = useState<Contest[]>([]);
-  const [selectedSlug, setSelectedSlug] = useState<string | null>(null);
+  // 어떤 화면을 볼지는 주소창 경로가 정한다(링크 공유·뒤로 가기).
+  const route = useRoute();
+  const selectedSlug = route.name === 'list' ? null : route.slug;
+  const [query, setQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState<ContestStatus | 'all'>('all');
   const [status, setStatus] = useState('불러오는 중…');
   const [username, setUsername] = useState<string | null>(getStoredUsername());
   const [isOrganizer, setIsOrganizer] = useState(false);
@@ -152,7 +159,7 @@ export default function App() {
   function handleContestCreated(created: Contest) {
     setContests((prev) => [created, ...prev.filter((c) => c.slug !== created.slug)]);
     setShowCreateForm(false);
-    setSelectedSlug(created.slug);
+    navigate(paths.contest(created.slug));
     loadContests();
   }
 
@@ -160,7 +167,7 @@ export default function App() {
   // 두는 이유는, 서버 재조회를 기다리는 동안 방금 지운 대회가 카드로 남아 보이기 때문이다.
   const handleContestDeleted = useCallback(
     (slug: string) => {
-      setSelectedSlug(null);
+      navigate(paths.list());
       setContests((prev) => prev.filter((c) => c.slug !== slug));
       loadContests();
     },
@@ -169,9 +176,16 @@ export default function App() {
 
   // 좌상단 로고를 언제든 눌러 대회 목록(초기 화면)으로 돌아간다.
   function handleGoHome() {
-    setSelectedSlug(null);
+    navigate(paths.list());
     setShowCreateForm(false);
   }
+
+  const needle = query.trim().toLowerCase();
+  const visibleContests = contests.filter(
+    (c) =>
+      (statusFilter === 'all' || c.status === statusFilter) &&
+      (!needle || c.name.toLowerCase().includes(needle))
+  );
 
   return (
     <>
@@ -193,7 +207,17 @@ export default function App() {
               <span className="crumb-sep" aria-hidden="true">
                 /
               </span>
-              <span className="crumb">{selected.name}</span>
+              <button type="button" className="crumb" onClick={() => navigate(paths.contest(selected.slug))}>
+                {selected.name}
+              </button>
+              {route.name !== 'contest' && (
+                <>
+                  <span className="crumb-sep" aria-hidden="true">
+                    /
+                  </span>
+                  <span className="crumb">제출물</span>
+                </>
+              )}
             </>
           )}
         </div>
@@ -247,16 +271,27 @@ export default function App() {
             <AuthPanel onLoggedIn={handleLoggedIn} />
           ))}
 
-        {selected ? (
+        {selected && route.name === 'gallery' ? (
+          <Gallery contest={selected} isOrganizer={isOrganizer} />
+        ) : selected && route.name === 'project' ? (
+          <ProjectDetail contest={selected} teamId={route.teamId} />
+        ) : selected ? (
           <ContestDetail
             contest={selected}
             username={username}
             isOrganizer={isOrganizer}
-            onBack={() => setSelectedSlug(null)}
+            onBack={() => navigate(paths.list())}
             onContestUpdated={handleContestUpdated}
             onDeleted={handleContestDeleted}
           />
-        ) : (
+        ) : selectedSlug && !status ? (
+          <p className="empty-hint">
+            대회를 찾을 수 없습니다.{' '}
+            <button type="button" className="link-btn" onClick={handleGoHome}>
+              목록으로
+            </button>
+          </p>
+        ) : selectedSlug ? null : (
           <>
             <div className="page-head">
               <div>
@@ -278,49 +313,58 @@ export default function App() {
               />
             )}
 
+            <div className="list-tools">
+              <input
+                type="search"
+                className="contest-search"
+                placeholder="대회 이름으로 검색"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                aria-label="대회 이름으로 검색"
+              />
+              <div className="line-tabs" role="tablist" aria-label="상태">
+                {(['all', ...STATUS_ORDER] as const).map((st) => (
+                  <button
+                    key={st}
+                    type="button"
+                    role="tab"
+                    aria-selected={statusFilter === st}
+                    className={statusFilter === st ? 'active' : ''}
+                    onClick={() => setStatusFilter(st)}
+                  >
+                    {st === 'all' ? '전체' : STATUS_LABEL[st]}
+                  </button>
+                ))}
+              </div>
+            </div>
+
             <section className="contest-list">
-              {contests.map((contest) => (
+              {visibleContests.map((contest) => (
                 <article
                   key={contest.slug}
                   className={`contest-card status-${contest.status}`}
-                  onClick={() => setSelectedSlug(contest.slug)}
+                  onClick={() => navigate(paths.contest(contest.slug))}
+                  tabIndex={0}
+                  onKeyDown={(e) => e.key === 'Enter' && navigate(paths.contest(contest.slug))}
                 >
-                  {/* 상태 점 → 이름 → 날짜·팀수 → 진입 화살표 (DESIGN.md 목록 행 규격). */}
-                  <span className={`status-dot status-${contest.status}`} aria-hidden="true" />
-                  <div className="contest-card-main">
-                    <h2>
-                      {contest.name}
-                      <span className={`status-badge status-${contest.status}`}>
-                        {STATUS_LABEL[contest.status]}
-                      </span>
-                    </h2>
-                    <p className="contest-meta">
-                      <span>
-                        {contest.start_at.slice(0, 10)} – {contest.end_at.slice(0, 10)}
-                      </span>
-                      <span>{contest.team_count}팀</span>
-                    </p>
-                  </div>
-                  <svg
-                    className="row-chevron"
-                    width="16"
-                    height="16"
-                    viewBox="0 0 16 16"
-                    fill="none"
-                    aria-hidden="true"
-                  >
-                    <polyline
-                      points="6,3 11,8 6,13"
-                      stroke="currentColor"
-                      strokeWidth="1.6"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  </svg>
+                  {/* 상태 점·라벨 → 대회명 → 한 줄 설명 → 헤어라인 → 모노 메타 (DESIGN.md 카드 규격). */}
+                  <span className={`status-badge status-${contest.status}`}>
+                    {STATUS_LABEL[contest.status]}
+                  </span>
+                  <h2>{contest.name}</h2>
+                  <p className="contest-card-desc">{contest.description}</p>
+                  <p className="contest-meta">
+                    <span>
+                      {contest.start_at.slice(0, 10)} – {contest.end_at.slice(0, 10)}
+                    </span>
+                    <span>{contest.team_count}팀</span>
+                  </p>
                 </article>
               ))}
-              {contests.length === 0 && !status && (
-                <p className="empty-hint">아직 등록된 대회가 없습니다.</p>
+              {visibleContests.length === 0 && !status && (
+                <p className="empty-hint">
+                  {contests.length === 0 ? '아직 등록된 대회가 없습니다.' : '조건에 맞는 대회가 없습니다.'}
+                </p>
               )}
             </section>
           </>

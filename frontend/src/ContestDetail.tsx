@@ -21,6 +21,7 @@ import { PresentationSchedule } from './PresentationSchedule';
 import { ProfilePanel } from './ProfilePanel';
 import { TeamCandidates } from './TeamCandidates';
 import { TeamRecommendations } from './TeamRecommendations';
+import { navigate, paths } from './router';
 import { canFormTeams, canScore, canSubmit, isLive } from './rules';
 import { JudgeAssistPanel } from './JudgeAssistPanel';
 import { SubmissionReviewPanel } from './SubmissionReview';
@@ -214,6 +215,13 @@ export function ContestDetail({
           />
         )}
         {contest.description && <p className="contest-description">{contest.description}</p>}
+        <button
+          type="button"
+          className="gallery-link"
+          onClick={() => navigate(paths.gallery(contest.slug))}
+        >
+          제출물 둘러보기
+        </button>
         {isOrganizer && <StatusControl contest={contest} onUpdated={onContestUpdated} />}
       </div>
 

@@ -74,7 +74,7 @@ export function SubmissionReviewPanel({
   );
 }
 
-function DemoPanel({ linkUrl }: { linkUrl: string }) {
+export function DemoPanel({ linkUrl }: { linkUrl: string }) {
   return (
     <div className="demo-panel">
       <div className="review-panel-head">
@@ -100,7 +100,7 @@ type GithubState =
   | { status: 'error'; kind: string }
   | { status: 'ready'; readme: string | null; files: GithubFile[]; branch: string; truncated: boolean };
 
-function GithubPanel({
+export function GithubPanel({
   repoUrl,
   contestStartAt,
 }: {

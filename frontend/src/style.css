@@ -373,47 +373,41 @@ body {
   color: var(--muted);
 }
 
-/* ---------- contest list (hairline rows) ---------- */
+/* ---------- contest list (3열 카드 그리드, DESIGN.md "레이아웃") ---------- */
 
-.contest-list {
+.list-tools {
   display: flex;
   flex-direction: column;
-  border-top: 1px solid var(--line);
+  gap: 12px;
+}
+
+.contest-search {
+  height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.9rem;
+}
+
+.contest-list {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 24px;
 }
 
 .contest-card {
   display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 16px 8px 16px 16px;
-  border-bottom: 1px solid var(--line);
-  border-left: 4px solid transparent;
+  flex-direction: column;
+  gap: 6px;
+  padding: 16px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--line);
+  border-radius: 6px;
   cursor: pointer;
-  transition: border-left-color 0.12s ease, background 0.12s ease;
-}
-
-/* 행 맨 앞의 상태 점. 왼쪽 레일과 같은 색이라 목록을 훑을 때 상태가 먼저 읽힌다. */
-.status-dot {
-  width: 8px;
-  height: 8px;
-  flex-shrink: 0;
-  border-radius: 50%;
-  background: var(--line);
-}
-
-.status-dot.status-recruiting,
-.status-dot.status-ongoing {
-  background: var(--live);
-}
-
-.status-dot.status-judging {
-  background: var(--judging);
-}
-
-/* 진입 화살표. 행 전체가 눌린다는 것을 알린다. */
-.row-chevron {
-  flex-shrink: 0;
-  color: var(--muted);
 }
 
 .contest-card:hover {
@@ -429,36 +423,38 @@ body {
   border-left-color: var(--judging);
 }
 
+/* 종료: 135° 빗금으로 비활성을 드러낸다. */
 .contest-card.status-closed {
-  border-left-color: var(--line);
+  background: repeating-linear-gradient(135deg, var(--paper-raised) 0 6px, var(--paper) 6px 12px);
 }
 
-.contest-card-main {
-  flex: 1;
-  min-width: 0;
-}
-
-.contest-card-main h2 {
-  margin: 0 0 4px;
-  display: flex;
-  align-items: center;
-  gap: 10px;
+.contest-card h2 {
+  margin: 0;
   font-size: 1.05rem;
   font-weight: 600;
 }
 
-/* 행 맨 앞의 .status-dot 이 이미 색 신호를 주므로 여기서는 글자만 남긴다. */
-.contest-card-main .status-badge::before {
-  display: none;
+.contest-card-desc {
+  margin: 0;
+  min-height: 1.2em;
+  font-size: 0.82rem;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .contest-meta {
-  margin: 0;
+  margin: auto 0 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
   display: flex;
-  gap: 20px;
+  flex-wrap: wrap;
+  column-gap: 20px;
   font-size: 0.82rem;
   color: var(--muted);
   font-family: var(--font-mono);
+  white-space: nowrap;
 }
 
 /* ---------- status signal (dot, not badge) ---------- */
@@ -1043,28 +1039,33 @@ body {
   margin: 0;
 }
 
-.seg-tabs {
+.seg-tabs,
+.line-tabs {
   display: inline-flex;
-  border: 1px solid var(--line);
+  flex-wrap: wrap;
+  column-gap: 18px;
+  border-bottom: 1px solid var(--line);
 }
 
-.seg-tabs button {
-  background: var(--paper-raised);
+.seg-tabs button,
+.line-tabs button {
+  min-height: 44px;
+  padding: 0 2px;
+  background: none;
   border: none;
-  padding: 5px 14px;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
   cursor: pointer;
   font-family: var(--font-ui);
-  font-size: 0.82rem;
+  font-size: 0.85rem;
   color: var(--muted);
+  white-space: nowrap;
 }
 
-.seg-tabs button + button {
-  border-left: 1px solid var(--line);
-}
-
-.seg-tabs button.active {
-  background: var(--signal);
-  color: var(--paper);
+.seg-tabs button.active,
+.line-tabs button.active {
+  color: var(--ink);
+  border-bottom-color: var(--ink);
 }
 
 .live-indicator {
@@ -2374,4 +2375,243 @@ button.stack-chip.removable:hover {
    둔다 — 판정은 심사위원이 한다. */
 .github-meta.before-contest {
   color: var(--judging);
+}
+
+/* ---------- 브레드크럼 버튼 ---------- */
+
+button.crumb {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+button.crumb:hover {
+  color: var(--ink);
+}
+
+/* 대회 상세 → 갤러리 진입 (2차 버튼: 라인 테두리 + 투명) */
+.gallery-link {
+  margin-top: 12px;
+  min-height: 44px;
+  padding: 0 16px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: none;
+  color: var(--ink);
+  cursor: pointer;
+  font-family: var(--font-ui);
+  font-size: 0.85rem;
+}
+
+/* ---------- 제출물 갤러리 ---------- */
+
+.gallery,
+.project {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.gallery-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.gallery-head h2,
+.project-head h2 {
+  margin: 0;
+  font-size: 1.4rem;
+  font-weight: 700;
+}
+
+.tile-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 24px;
+}
+
+.tile {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 16px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--line);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.tile:hover {
+  background: var(--paper-raised);
+}
+
+.tile.scored {
+  border-left-color: var(--signal);
+}
+
+.tile.unsubmitted {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.tile-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.tile-top h3 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.tile-score {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  color: var(--signal);
+}
+
+.tile.unsubmitted .tile-score,
+.tile:not(.scored) .tile-score {
+  color: var(--muted);
+}
+
+/* "미제출"은 숫자가 아니라 모노를 쓰지 않는다 (DESIGN.md 하지 않는 것 6). */
+.tile.unsubmitted .tile-score {
+  font-family: var(--font-ui);
+  font-weight: 500;
+  font-size: 0.82rem;
+}
+
+.project-scores {
+  display: flex;
+  gap: 28px;
+}
+
+.tile-title {
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+.tile-desc {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--muted);
+  line-height: 1.5;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.tile-links {
+  margin: auto 0 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+  display: flex;
+  gap: 14px;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+/* ---------- 프로젝트 상세 ---------- */
+
+.project-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.project-meta {
+  margin: 6px 0 0;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.project-score {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+
+.project-score span {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: 1.6rem;
+  color: var(--signal);
+  line-height: 1;
+}
+
+.project-score small {
+  margin-top: 4px;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.project-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 240px;
+  gap: 28px;
+}
+
+.project-main {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  min-width: 0;
+}
+
+.project-desc {
+  margin: 0;
+  line-height: 1.7;
+  font-size: 0.9rem;
+  white-space: pre-wrap;
+}
+
+.project-aside dl {
+  margin: 0;
+}
+
+.project-aside dt {
+  margin-top: 12px;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.project-aside dd {
+  margin: 2px 0 0;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--line);
+  font-size: 0.85rem;
+  overflow-wrap: anywhere;
+}
+
+.project-aside a {
+  color: var(--signal);
+}
+
+@media (max-width: 900px) {
+  .contest-list,
+  .tile-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .contest-list,
+  .tile-grid,
+  .project-body {
+    grid-template-columns: 1fr;
+  }
 }
