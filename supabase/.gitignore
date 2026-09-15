@@ -6,3 +6,6 @@
 .env.keys
 .env.local
 .env.*.local
+
+# Edge Function 로컬 비밀값 (LLM 키 등)
+functions/.env

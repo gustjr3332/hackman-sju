@@ -212,6 +212,27 @@ is_staff, …기존 Profile 필드)`. 컬럼·제약은 `backend/contests/models
 
 ---
 
+### C 진행 기록 (2026-09-15, 완료)
+
+- Edge Functions 5개(`supabase/functions/`): `llm-models`, `profile-extract`, `github`,
+  `recommendations`, `analyze-submission`. 외부 호출 없는 규칙은 `_shared/logic.ts` 에 모았고
+  `npx deno test supabase/functions/_shared/logic_test.ts` 8건 통과.
+- 로컬 실행: `npx supabase start -x imgproxy,logflare,vector,supavisor` 후
+  `npx supabase functions serve --env-file supabase/functions/.env`(LLM 키, gitignore 대상).
+  `start` 가 띄우는 edge runtime 은 기동 뒤에 만든 함수를 못 찾아 `functions serve` 로 돌렸다.
+- 계획과 달라진 것:
+  - LLM 3사는 SDK 없이 HTTP 로 부른다(Deno 에서 의존성 없이).
+  - 로그인은 이메일, 가입 때 아이디를 함께 받는다. 비밀번호 재설정 메일과 새 비밀번호 화면을 넣었다.
+  - Render 콜드스타트용 "서버 깨우는 중" 안내를 지웠다.
+  - 번들이 206KB → 436KB(gzip 65KB → 125KB)로 늘었다. supabase-js 몫이다.
+- 확인한 것:
+  - 브라우저(비로그인): 목록·상세·갤러리가 Supabase 데이터로 뜨고, DB 에 점수를 넣자 새로고침 없이
+    2초 안에 스코어보드 순위가 바뀌었다.
+  - supabase-js 로 api.ts 와 같은 쿼리를 역할별로 27건(대회·팀·제출물·발표·채점·시상·프로필·
+    분석·추천): 전부 통과.
+  - `analyze-submission` 실제 실행: `pallets/itsdangerous` 파일 23개, 입력 17.5k 토큰으로 `done`.
+- 확인 못 한 것: 로그인한 상태의 화면 조작(운영자·심사위원 화면)은 사람이 직접 눌러 봐야 한다.
+
 ## D. 데이터 이전과 전환
 
 1. 공지 후 쓰기 중단. 기존 백업 워크플로(`.github/workflows/supabase-backup.yml`) 수동 실행으로 백업 확보

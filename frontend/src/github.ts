@@ -1,11 +1,11 @@
-// 저장소 열람은 백엔드 프록시(`/api/github/…`)를 거친다.
+// 저장소 열람은 Edge Function `github` 을 거친다(supabase/functions/github).
 //
 // 예전에는 브라우저가 api.github.com 을 직접 불렀는데, 비인증 한도가 시간당 60회라 같은
 // 저장소를 심사위원 여러 명이 반복해서 여는 실제 심사에서 먼저 바닥났다. 지금은 서버가
 // 토큰(선택)으로 대신 호출하고 응답을 캐시하므로 한도가 사실상 문제되지 않는다.
 // 서버 구현과 캐시 수명은 `backend/contests/github.py` 참고.
 
-import { ApiError, apiGet } from './api';
+import { ApiError, callFunction } from './api';
 
 export interface GithubRepoRef {
   owner: string;
@@ -61,9 +61,8 @@ function repoUrl(ref: GithubRepoRef): string {
 }
 
 async function proxyGet<T>(resource: string, params: Record<string, string>): Promise<T> {
-  const query = new URLSearchParams(params).toString();
   try {
-    return await apiGet<T>(`/github/${resource}/?${query}`);
+    return await callFunction<T>('github', { resource, ...params });
   } catch (err) {
     // 서버가 실패 원인을 kind 로 알려주므로 화면 안내 문구를 그대로 유지할 수 있다.
     const body = err instanceof ApiError ? (err.body as { kind?: string } | null) : null;

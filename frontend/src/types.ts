@@ -100,11 +100,6 @@ export interface ScoreboardEntry {
   rank: number | null;
 }
 
-export interface AuthTokens {
-  access: string;
-  refresh: string;
-}
-
 /** rank 1이 최상위 상. 시상식 전까지는 운영자만 볼 수 있다. */
 export interface Award {
   id: number;

@@ -1,5 +1,7 @@
+// 백엔드 호출은 전부 여기를 지난다. 화면은 이 파일의 함수 이름과 반환 모양만 믿는다.
+// 데이터는 Supabase(RLS 가 권한을 지키는 뷰·테이블·RPC), LLM·GitHub 은 Edge Function 이다.
+import { createClient, FunctionsHttpError, type PostgrestError } from '@supabase/supabase-js';
 import type {
-  AuthTokens,
   Award,
   Contest,
   ContestInput,
@@ -19,19 +21,73 @@ import type {
   TechStack,
 } from './types';
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000/api';
+export const supabase = createClient(
+  import.meta.env.VITE_SUPABASE_URL || 'http://127.0.0.1:54321',
+  import.meta.env.VITE_SUPABASE_ANON_KEY || ''
+);
 
-const ACCESS_TOKEN_KEY = 'webclaude_access_token';
-const REFRESH_TOKEN_KEY = 'webclaude_refresh_token';
-const USERNAME_KEY = 'webclaude_username';
+// ---------- 오류 ----------
 
-/** 리프레시까지 실패해 세션이 끝났을 때 window 에 발생시키는 이벤트 이름. */
-export const AUTH_EXPIRED_EVENT = 'webclaude:auth-expired';
-
-export function getAccessToken(): string | null {
-  return localStorage.getItem(ACCESS_TOKEN_KEY);
+/** 화면에 띄울 메시지 외에 상태 코드·응답 본문까지 봐야 하는 호출을 위해 함께 실어 보낸다. */
+export class ApiError extends Error {
+  status = 0;
+  body: unknown = null;
 }
 
+// 트리거가 내는 한국어 메시지는 그대로 쓰고, 제약 위반처럼 DB 원문이 오는 것만 바꾼다.
+const CONSTRAINT_MESSAGES: Record<string, string> = {
+  teams_contest_name_key: '이미 이 대회에 같은 이름의 팀이 있습니다.',
+  participants_team_user_key: '이미 참가 중인 팀입니다.',
+  awards_contest_rank_key: '이미 같은 등수에 상이 있습니다.',
+  contests_pkey: '이미 같은 주소(slug)를 쓰는 대회가 있습니다.',
+  contests_end_after_start: '종료 일시는 시작 일시보다 빨라서는 안 됩니다.',
+  submissions_team_id_key: '이 팀은 이미 제출물이 있습니다.',
+};
+
+function toError(e: PostgrestError | { message: string; code?: string }): ApiError {
+  const name = Object.keys(CONSTRAINT_MESSAGES).find((k) => e.message.includes(`"${k}"`));
+  let message = name ? CONSTRAINT_MESSAGES[name] : e.message;
+  if (/row-level security|permission denied/i.test(e.message)) message = '권한이 없습니다.';
+  else if (e.code === '23514' && !name && !/[가-힣]/.test(e.message)) message = '입력 값이 올바르지 않습니다.';
+  const err = new ApiError(message);
+  err.body = e;
+  return err;
+}
+
+async function must<T>(q: PromiseLike<{ data: T | null; error: PostgrestError | null }>): Promise<T> {
+  const { data, error } = await q;
+  if (error) throw toError(error);
+  return data as T;
+}
+
+/** RLS 로 막힌 수정·삭제는 오류 없이 0행이 된다. 바뀐 행이 없으면 권한이 없는 것으로 본다. */
+function one<T>(rows: T[] | null): T {
+  if (!rows?.length) throw new ApiError('권한이 없거나 찾을 수 없습니다.');
+  return rows[0];
+}
+
+/** Edge Function 호출. 실패하면 함수가 준 detail(과 kind)을 담아 던진다. */
+export async function callFunction<T>(name: string, body: Record<string, unknown> = {}): Promise<T> {
+  const { data, error } = await supabase.functions.invoke(name, { body });
+  if (error) {
+    const res = error instanceof FunctionsHttpError ? (error.context as Response) : null;
+    const detail = res ? await res.json().catch(() => null) : null;
+    const err = new ApiError(detail?.detail ?? '요청에 실패했습니다');
+    err.status = res?.status ?? 0;
+    err.body = detail;
+    throw err;
+  }
+  return data as T;
+}
+
+// ---------- 인증 ----------
+
+const USERNAME_KEY = 'hackman_username';
+
+/** 세션이 끝났을 때(갱신 실패·다른 탭 로그아웃) window 에 발생시키는 이벤트 이름. */
+export const AUTH_EXPIRED_EVENT = 'hackman:auth-expired';
+
+// 첫 화면을 그릴 때 로그인 여부를 동기로 알아야 해서 아이디를 따로 적어 둔다.
 export function getStoredUsername(): string | null {
   return localStorage.getItem(USERNAME_KEY);
 }
@@ -40,7 +96,7 @@ export function storeUsername(username: string) {
   localStorage.setItem(USERNAME_KEY, username);
 }
 
-/** 다른 탭에서 로그인/로그아웃하면 이 탭도 따라가도록 storage 이벤트를 구독한다. 해제 함수를 돌려준다. */
+/** 다른 탭에서 로그인/로그아웃하면 이 탭도 따라가도록 storage 이벤트를 구독한다. */
 export function onStoredUsernameChange(handler: (username: string | null) => void): () => void {
   const listener = (event: StorageEvent) => {
     if (event.key === null || event.key === USERNAME_KEY) handler(getStoredUsername());
@@ -49,386 +105,310 @@ export function onStoredUsernameChange(handler: (username: string | null) => voi
   return () => window.removeEventListener('storage', listener);
 }
 
-export function clearAuth() {
-  localStorage.removeItem(ACCESS_TOKEN_KEY);
-  localStorage.removeItem(REFRESH_TOKEN_KEY);
-  localStorage.removeItem(USERNAME_KEY);
-  clearConditionalCache();
-}
-
-// 동시에 여러 요청이 401 을 받아도 리프레시는 한 번만 보낸다.
-let refreshInFlight: Promise<boolean> | null = null;
-
-function refreshAccessToken(): Promise<boolean> {
-  if (refreshInFlight) return refreshInFlight;
-  const refresh = localStorage.getItem(REFRESH_TOKEN_KEY);
-  if (!refresh) return Promise.resolve(false);
-
-  refreshInFlight = fetch(`${API_BASE_URL}/auth/token/refresh/`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ refresh }),
-  })
-    .then(async (res) => {
-      if (!res.ok) return false;
-      const data = (await res.json()) as { access: string; refresh?: string };
-      localStorage.setItem(ACCESS_TOKEN_KEY, data.access);
-      if (data.refresh) localStorage.setItem(REFRESH_TOKEN_KEY, data.refresh);
-      return true;
-    })
-    .catch(() => false)
-    .finally(() => {
-      refreshInFlight = null;
-    });
-  return refreshInFlight;
-}
-
-async function send(path: string, options: RequestInit = {}, allowRefresh = true): Promise<Response> {
-  const token = getAccessToken();
-  const headers = new Headers(options.headers);
-  headers.set('Content-Type', 'application/json');
-  if (token) headers.set('Authorization', `Bearer ${token}`);
-
-  const res = await fetch(`${API_BASE_URL}${path}`, { ...options, headers });
-
-  if (res.status === 401 && token && allowRefresh) {
-    if (await refreshAccessToken()) {
-      return send(path, options, false);
-    }
-    clearAuth();
+supabase.auth.onAuthStateChange((event) => {
+  if (event === 'SIGNED_OUT' && getStoredUsername()) {
+    localStorage.removeItem(USERNAME_KEY);
     window.dispatchEvent(new Event(AUTH_EXPIRED_EVENT));
-    throw new Error('로그인이 만료되었습니다. 다시 로그인해 주세요.');
   }
-
-  // 304 는 "바뀐 게 없다"는 정상 응답이라 ok 가 false 여도 에러가 아니다 (conditionalGet 참고).
-  if (!res.ok && res.status !== 304) {
-    const detail = await res.json().catch(() => null);
-    const message =
-      (detail && (detail.detail || Object.values(detail)[0])) || `요청에 실패했습니다 (${res.status})`;
-    const error = new ApiError(Array.isArray(message) ? message[0] : String(message));
-    error.status = res.status;
-    error.body = detail;
-    throw error;
-  }
-  return res;
-}
-
-/** 화면에 띄울 메시지 외에 상태 코드·응답 본문까지 봐야 하는 호출을 위해 함께 실어 보낸다. */
-export class ApiError extends Error {
-  status = 0;
-  body: unknown = null;
-}
-
-async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const res = await send(path, options);
-  if (res.status === 204) return undefined as T;
-  return res.json();
-}
-
-/** 다른 모듈이 같은 인증·에러 처리로 백엔드를 부를 때 쓰는 GET 래퍼 (github.ts). */
-export function apiGet<T>(path: string): Promise<T> {
-  return request<T>(path);
-}
-
-/**
- * 마지막으로 받은 응답과 그 ETag. 폴링이 같은 경로를 반복해서 부르므로, 서버가
- * "안 바뀜(304)"이라고 하면 본문을 받지 않고 여기 있는 값을 그대로 돌려준다.
- */
-const conditionalCache = new Map<string, { etag: string; data: unknown }>();
-
-/**
- * 조건부 GET. 이전 응답의 ETag 를 `If-None-Match` 로 보내고, 304 면 이전 데이터를 **같은
- * 객체 참조로** 돌려준다 — 참조가 그대로라 React 가 재렌더까지 건너뛴다.
- */
-async function conditionalGet<T>(path: string): Promise<T> {
-  const cached = conditionalCache.get(path);
-  const res = await send(path, cached ? { headers: { 'If-None-Match': cached.etag } } : {});
-  if (res.status === 304 && cached) return cached.data as T;
-
-  const data = (await res.json()) as T;
-  const etag = res.headers.get('ETag');
-  if (etag) conditionalCache.set(path, { etag, data });
-  else conditionalCache.delete(path);
-  return data;
-}
-
-/** 계정이 바뀌면 같은 경로라도 응답이 달라지므로(예: 결선 순위 가시성) 캐시를 버린다. */
-function clearConditionalCache() {
-  conditionalCache.clear();
-}
+});
 
 export async function register(username: string, email: string, password: string): Promise<void> {
-  await request('/auth/register/', {
-    method: 'POST',
-    body: JSON.stringify({ username, email, password }),
+  const { error } = await supabase.auth.signUp({ email, password, options: { data: { username } } });
+  if (!error) return;
+  // 가입 트리거가 프로필을 못 만들면(아이디 중복·형식) Auth 는 이 문구만 돌려준다.
+  if (/database error saving new user/i.test(error.message)) {
+    throw new ApiError('이미 쓰는 아이디이거나 형식이 맞지 않습니다 (영문·숫자·_ . @ + - 만).');
+  }
+  if (/already registered/i.test(error.message)) throw new ApiError('이미 가입한 이메일입니다.');
+  throw new ApiError(error.message);
+}
+
+/** 이메일로 로그인하고 아이디를 돌려준다. */
+export async function login(email: string, password: string): Promise<string> {
+  const { error } = await supabase.auth.signInWithPassword({ email, password });
+  if (error) {
+    throw new ApiError(/invalid login/i.test(error.message) ? '이메일 또는 비밀번호가 맞지 않습니다.' : error.message);
+  }
+  const me = await fetchMe();
+  storeUsername(me.username);
+  return me.username;
+}
+
+export async function logout() {
+  localStorage.removeItem(USERNAME_KEY);
+  await supabase.auth.signOut();
+}
+
+/** 비밀번호 재설정 메일. 메일의 링크로 돌아오면 onPasswordRecovery 가 불린다. */
+export async function requestPasswordReset(email: string): Promise<void> {
+  const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo: window.location.origin });
+  if (error) throw new ApiError(error.message);
+}
+
+export function onPasswordRecovery(handler: () => void): () => void {
+  const { data } = supabase.auth.onAuthStateChange((event) => {
+    if (event === 'PASSWORD_RECOVERY') handler();
   });
+  return () => data.subscription.unsubscribe();
 }
 
-export async function login(username: string, password: string): Promise<AuthTokens> {
-  const tokens = await request<AuthTokens>('/auth/token/', {
-    method: 'POST',
-    body: JSON.stringify({ username, password }),
-  });
-  localStorage.setItem(ACCESS_TOKEN_KEY, tokens.access);
-  localStorage.setItem(REFRESH_TOKEN_KEY, tokens.refresh);
-  storeUsername(username);
-  clearConditionalCache();
-  return tokens;
+export async function setNewPassword(password: string): Promise<string> {
+  const { error } = await supabase.auth.updateUser({ password });
+  if (error) throw new ApiError(error.message);
+  const me = await fetchMe();
+  storeUsername(me.username);
+  return me.username;
 }
 
-export function logout() {
-  clearAuth();
+export async function fetchMe(): Promise<Me> {
+  const { data } = await supabase.auth.getUser();
+  if (!data.user) throw new ApiError('로그인이 필요합니다.');
+  return must(supabase.from('profiles').select('username, is_staff').eq('id', data.user.id).single());
 }
 
-export function fetchMe(): Promise<Me> {
-  return request('/auth/me/');
+// ---------- 실시간 ----------
+
+/**
+ * 대회에 무언가 바뀌면 onChange 를 부른다. 신호에는 데이터가 없으니 화면은 다시 불러온다.
+ * 구독이 붙기 전의 변경은 오지 않으므로 붙은 직후에도 한 번 부른다.
+ */
+export function subscribeContest(slug: string, onChange: () => void): () => void {
+  const channel = supabase
+    .channel(`contest:${slug}`)
+    .on('broadcast', { event: 'changed' }, onChange)
+    .subscribe((status) => {
+      if (status === 'SUBSCRIBED') onChange();
+    });
+  return () => {
+    supabase.removeChannel(channel);
+  };
 }
 
 // ---------- contests ----------
 
 export function fetchContests(): Promise<Contest[]> {
-  return request('/contests/');
+  return must(supabase.from('contest_list').select('*').order('start_at', { ascending: false }));
 }
 
 export function fetchContest(slug: string): Promise<Contest> {
-  return request(`/contests/${slug}/`);
+  return must(supabase.from('contest_list').select('*').eq('slug', slug).single());
 }
 
-export function createContest(data: ContestInput): Promise<Contest> {
-  return request('/contests/', {
-    method: 'POST',
-    body: JSON.stringify(data),
-  });
+export async function createContest(data: ContestInput): Promise<Contest> {
+  await must(supabase.from('contests').insert(data));
+  return fetchContest(data.slug);
 }
 
-export function updateContest(
+export async function updateContest(
   slug: string,
   data: Partial<ContestInput> & { status?: ContestStatus }
 ): Promise<Contest> {
-  return request(`/contests/${slug}/`, {
-    method: 'PATCH',
-    body: JSON.stringify(data),
-  });
+  one(await must(supabase.from('contests').update(data).eq('slug', slug).select('slug')));
+  return fetchContest(data.slug ?? slug);
 }
 
-/**
- * 대회와 딸린 데이터(팀·참가자·제출물·심사위원·점수·시상)를 전부 지운다. 되돌릴 수 없으므로
- * 호출부에서 반드시 확인 절차를 거친 뒤에 부른다.
- */
-export function deleteContest(slug: string): Promise<void> {
-  return request(`/contests/${slug}/`, { method: 'DELETE' });
+/** 대회와 딸린 데이터를 전부 지운다. 되돌릴 수 없으므로 호출부에서 확인 절차를 거친다. */
+export async function deleteContest(slug: string): Promise<void> {
+  one(await must(supabase.from('contests').delete().eq('slug', slug).select('slug')));
 }
 
-/**
- * 5초마다 불리는 유일한 집계 엔드포인트라 조건부 GET 을 쓴다. 순위가 그대로면 서버가 304 만
- * 돌려주므로 본문 전송·파싱·재렌더가 전부 없어진다.
- */
-export function fetchScoreboard(slug: string): Promise<ScoreboardEntry[]> {
-  return conditionalGet(`/contests/${slug}/scoreboard/`);
+const two = (v: number | string | null) => (v === null ? null : Number(v).toFixed(2));
+
+export async function fetchScoreboard(slug: string): Promise<ScoreboardEntry[]> {
+  const rows = await must(supabase.rpc('scoreboard', { p_slug: slug }));
+  return (rows as ScoreboardEntry[]).map((r) => ({ ...r, average_score: two(r.average_score) }));
 }
 
-/**
- * 발표 순서를 제출 시각순으로 (재)배정한다 (운영자 전용). 시작 시각은 정하지 않는다 —
- * 발표는 운영자가 팀마다 "발표 시작"을 눌러야 시작된다.
- */
-export function assignPresentationOrder(slug: string): Promise<Contest> {
-  return request(`/contests/${slug}/assign_presentation_order/`, { method: 'POST' });
+/** 발표 순서를 제출 시각순으로 (재)배정한다 (운영자 전용). */
+export async function assignPresentationOrder(slug: string): Promise<Contest> {
+  await must(supabase.rpc('assign_presentation_order', { p_slug: slug }));
+  return fetchContest(slug);
 }
 
-/** 발표 순서·발표 시간을 팀 단위로 바꾼다 (운영자 전용). */
-export function updateTeamPresentation(
+/** 발표 순서·발표 시간을 팀 단위로 바꾼다 (운영자 전용). 넘기지 않은 값은 그대로 둔다. */
+export async function updateTeamPresentation(
   teamId: number,
   data: { presentation_order?: number; presentation_minutes?: number | null }
 ): Promise<Team> {
-  return request(`/teams/${teamId}/`, { method: 'PATCH', body: JSON.stringify(data) });
+  const current = await must<{ presentation_order: number | null; presentation_minutes: number | null }>(
+    supabase.from('teams').select('presentation_order, presentation_minutes').eq('id', teamId).single()
+  );
+  const next = { ...current, ...data };
+  return one(await must(supabase.rpc('set_team_schedule', {
+    p_team_id: teamId,
+    p_order: next.presentation_order,
+    p_minutes: next.presentation_minutes,
+  }))) as Team;
 }
 
-/** 이 팀의 발표를 지금 시작한다 (운영자 전용). 아직 안 끝난 다른 팀은 자동으로 종료된다. */
-export function startPresentation(teamId: number): Promise<Team> {
-  return request(`/teams/${teamId}/start_presentation/`, { method: 'POST' });
+export async function startPresentation(teamId: number): Promise<Team> {
+  return one(await must(supabase.rpc('start_presentation', { p_team_id: teamId }))) as Team;
 }
 
-/** 발표를 끝낸다 (운영자 전용). 남은 시간이 있어도 타이머가 멈춘다. */
-export function endPresentation(teamId: number): Promise<Team> {
-  return request(`/teams/${teamId}/end_presentation/`, { method: 'POST' });
+export async function endPresentation(teamId: number): Promise<Team> {
+  return one(await must(supabase.rpc('end_presentation', { p_team_id: teamId }))) as Team;
 }
 
-/** 시작/종료 기록을 지운다 (운영자 전용) — 실수로 눌렀을 때 되돌린다. */
-export function resetPresentation(teamId: number): Promise<Team> {
-  return request(`/teams/${teamId}/reset_presentation/`, { method: 'POST' });
+export async function resetPresentation(teamId: number): Promise<Team> {
+  return one(await must(supabase.rpc('reset_presentation', { p_team_id: teamId }))) as Team;
 }
 
 // ---------- teams ----------
 
 export function fetchTeams(contestSlug: string): Promise<Team[]> {
-  return request(`/teams/?contest=${contestSlug}`);
+  return must(supabase.from('team_list').select('*').eq('contest', contestSlug).order('name'));
 }
 
-export function createTeam(contestSlug: string, name: string): Promise<Team> {
-  return request('/teams/', {
-    method: 'POST',
-    body: JSON.stringify({ contest: contestSlug, name }),
-  });
+export async function createTeam(contestSlug: string, name: string): Promise<Team> {
+  const row = await must<{ id: number }>(supabase.from('teams').insert({ contest_slug: contestSlug, name }).select('id').single());
+  return must(supabase.from('team_list').select('*').eq('id', row.id).single());
 }
 
-export function joinTeam(teamId: number): Promise<void> {
-  return request(`/teams/${teamId}/join/`, { method: 'POST' });
+export async function joinTeam(teamId: number): Promise<void> {
+  await must(supabase.from('participants').insert({ team_id: teamId }));
 }
 
 // ---------- judges ----------
 
 export function fetchJudges(contestSlug: string): Promise<Judge[]> {
-  return request(`/judges/?contest=${contestSlug}`);
+  return must(supabase.from('judge_list').select('*').eq('contest', contestSlug));
 }
 
-export function addJudge(contestSlug: string, username: string): Promise<Judge> {
-  return request('/judges/', {
-    method: 'POST',
-    body: JSON.stringify({ contest: contestSlug, username }),
-  });
+export async function addJudge(contestSlug: string, username: string): Promise<Judge> {
+  return one(await must(supabase.rpc('assign_judge', { p_slug: contestSlug, p_username: username }))) as Judge;
 }
 
-export function removeJudge(judgeId: number): Promise<void> {
-  return request(`/judges/${judgeId}/`, { method: 'DELETE' });
+export async function removeJudge(judgeId: number): Promise<void> {
+  one(await must(supabase.from('judges').delete().eq('id', judgeId).select('id')));
 }
 
 // ---------- scores ----------
 
-/** 이 대회에서 내가 입력한 점수만. 운영자여도 남의 점수는 섞이지 않는다 (mine=1). */
-export function fetchMyScores(contestSlug: string): Promise<Score[]> {
-  return request(`/scores/?contest=${contestSlug}&mine=1`);
+const withValue = (s: Score) => ({ ...s, value: two(s.value) as string });
+
+/** 이 대회에서 내가 입력한 점수만. 운영자여도 남의 점수는 섞이지 않는다. */
+export async function fetchMyScores(contestSlug: string): Promise<Score[]> {
+  const rows = await must(supabase.from('score_list').select('*').eq('contest', contestSlug).eq('is_mine', true));
+  return (rows as Score[]).map(withValue);
 }
 
-export function upsertScore(
+/** 같은 라운드에 다시 저장하면 덮어쓴다. 기존 점수 id 는 서버가 찾으므로 쓰지 않는다. */
+export async function upsertScore(
   submissionId: number,
   round: ScoreRound,
-  existingId: number | undefined,
+  _existingId: number | undefined,
   data: { value: string; comment: string }
 ): Promise<Score> {
-  if (existingId) {
-    return request(`/scores/${existingId}/`, {
-      method: 'PATCH',
-      body: JSON.stringify(data),
-    });
-  }
-  return request('/scores/', {
-    method: 'POST',
-    body: JSON.stringify({ submission: submissionId, round, ...data }),
-  });
+  const rows = await must(supabase.rpc('submit_score', {
+    p_submission_id: submissionId,
+    p_round: round,
+    p_value: Number(data.value),
+    p_comment: data.comment,
+  }));
+  return withValue(one(rows as Score[]));
 }
 
 // ---------- submissions ----------
 
-export function upsertSubmission(
+const SUBMISSION_COLUMNS = 'id, team:team_id, title, description, link_url, repo_url, submitted_at';
+
+export async function upsertSubmission(
   teamId: number,
   existingId: number | undefined,
   data: { title: string; description: string; link_url: string; repo_url: string }
 ): Promise<Submission> {
   if (existingId) {
-    return request(`/submissions/${existingId}/`, {
-      method: 'PATCH',
-      body: JSON.stringify(data),
-    });
+    return one(await must(supabase.from('submissions').update(data).eq('id', existingId).select(SUBMISSION_COLUMNS))) as Submission;
   }
-  return request('/submissions/', {
-    method: 'POST',
-    body: JSON.stringify({ team: teamId, ...data }),
-  });
+  return must(supabase.from('submissions').insert({ team_id: teamId, ...data }).select(SUBMISSION_COLUMNS).single()) as Promise<Submission>;
 }
 
 // ---------- awards (organizer only) ----------
 
+const AWARD_COLUMNS = 'id, contest:contest_slug, rank, title';
+
 export function fetchAwards(contestSlug: string): Promise<Award[]> {
-  return request(`/awards/?contest=${contestSlug}`);
+  return must(supabase.from('awards').select(AWARD_COLUMNS).eq('contest_slug', contestSlug).order('rank')) as Promise<Award[]>;
 }
 
 export function createAward(contestSlug: string, rank: number, title: string): Promise<Award> {
-  return request('/awards/', {
-    method: 'POST',
-    body: JSON.stringify({ contest: contestSlug, rank, title }),
-  });
+  return must(supabase.from('awards').insert({ contest_slug: contestSlug, rank, title }).select(AWARD_COLUMNS).single()) as Promise<Award>;
 }
 
-export function updateAward(id: number, title: string): Promise<Award> {
-  return request(`/awards/${id}/`, { method: 'PATCH', body: JSON.stringify({ title }) });
+export async function updateAward(id: number, title: string): Promise<Award> {
+  return one(await must(supabase.from('awards').update({ title }).eq('id', id).select(AWARD_COLUMNS))) as Award;
 }
 
-export function deleteAward(id: number): Promise<void> {
-  return request(`/awards/${id}/`, { method: 'DELETE' });
+export async function deleteAward(id: number): Promise<void> {
+  one(await must(supabase.from('awards').delete().eq('id', id).select('id')));
 }
-
 
 // ---------- 팀빌딩 (프로필 + 추천) ----------
 
-/** 내 프로필. 서버가 없으면 만들어서 돌려주므로 생성 호출이 따로 없다. */
-export function fetchMyProfile(): Promise<Profile> {
-  return request('/profile/');
+// 참가자가 직접 고칠 수 있는 필드. 나머지(추출 상태·운영자 여부 등)는 DB 가 열 권한으로 막는다.
+const PROFILE_EDITABLE = ['intro', 'github_url', 'skills', 'interests', 'roles', 'level', 'looking_for_team'] as const;
+
+export async function fetchMyProfile(): Promise<Profile> {
+  const { data } = await supabase.auth.getUser();
+  if (!data.user) throw new ApiError('로그인이 필요합니다.');
+  return must(supabase.from('profiles').select('*').eq('id', data.user.id).single());
 }
 
-export function updateMyProfile(data: Partial<Profile>): Promise<Profile> {
-  return request('/profile/', { method: 'PATCH', body: JSON.stringify(data) });
+export async function updateMyProfile(data: Partial<Profile>): Promise<Profile> {
+  const { data: auth } = await supabase.auth.getUser();
+  if (!auth.user) throw new ApiError('로그인이 필요합니다.');
+  const patch = Object.fromEntries(Object.entries(data).filter(([k]) => (PROFILE_EDITABLE as readonly string[]).includes(k)));
+  return must(supabase.from('profiles').update(patch).eq('id', auth.user.id).select('*').single());
 }
 
-/**
- * 자기소개 원문을 LLM 으로 구조화한다. 실패해도 예외가 아니라 `extraction_status: 'failed'`
- * 인 프로필이 돌아온다 — 추출 실패가 팀빌딩을 막지 않는다.
- */
+/** 자기소개를 LLM 으로 구조화한다. 실패해도 예외가 아니라 extraction_status 'failed' 프로필이 온다. */
 export function extractMyProfile(provider?: string, model?: string): Promise<Profile> {
-  return request('/profile/extract/', {
-    method: 'POST',
-    body: JSON.stringify({ provider, model }),
-  });
+  return callFunction('profile-extract', { provider, model });
 }
 
 /** 키가 설정된 제공사만 돌아온다. 빈 배열이면 자동 정리 버튼을 숨긴다. */
 export function fetchLlmProviders(): Promise<{ providers: LlmProvider[] }> {
-  return request('/llm/models/');
+  return callFunction('llm-models');
 }
 
 /** 이 대회에서 나에게 맞는 팀 순위. 이미 팀이 있으면 빈 배열. */
 export function fetchRecommendedTeams(slug: string): Promise<{ teams: TeamRecommendation[] }> {
-  return request(`/contests/${slug}/recommended_teams/`);
+  return callFunction('recommendations', { contest: slug });
 }
 
 /** 이 팀에 맞는, 아직 팀이 없는 사람 순위. 팀원과 운영자만 볼 수 있다. */
 export function fetchTeamCandidates(teamId: number): Promise<{ candidates: TeamCandidate[] }> {
-  return request(`/teams/${teamId}/candidates/`);
+  return callFunction('recommendations', { team: teamId });
 }
-
 
 // ---------- 정규 기술 스택 목록 ----------
 
-/** 프로필의 스택 선택 목록. 백엔드가 정본이라 프론트에 같은 목록을 두지 않는다. */
-export function fetchTechStacks(): Promise<{ stacks: TechStack[] }> {
-  return request('/tech-stacks/');
+export async function fetchTechStacks(): Promise<{ stacks: TechStack[] }> {
+  const stacks = await must(supabase.from('tech_stacks').select('slug, name, category, aliases').eq('is_active', true).order('category').order('name'));
+  return { stacks: stacks as TechStack[] };
 }
-
 
 // ---------- 심사 보조 (제출 저장소 사전 분석) ----------
 
-/** 이 제출물의 분석 결과 전부. 운영자·배정된 심사위원만 부를 수 있다(참가자는 403). */
-export function fetchSubmissionReviews(
-  submissionId: number
-): Promise<{ reviews: SubmissionReview[] }> {
-  return request(`/submissions/${submissionId}/reviews/`);
+const PROVIDER_LABEL: Record<string, string> = { anthropic: 'Anthropic', openai: 'OpenAI', google: 'Google' };
+
+/** 이 제출물의 분석 결과 전부. 운영자·배정된 심사위원만 보이고, 그 외에는 빈 목록이다(RLS). */
+export async function fetchSubmissionReviews(submissionId: number): Promise<{ reviews: SubmissionReview[] }> {
+  const rows = await must(supabase.from('submission_reviews').select('*, submissions(submitted_at)').eq('submission_id', submissionId).order('provider'));
+  type Row = SubmissionReview & { submission_id: number; submission_seen_at: string | null; submissions: { submitted_at: string } | null };
+  const reviews = (rows as unknown as Row[]).map(({ submissions, submission_id, ...r }) => ({
+    ...r,
+    submission: submission_id,
+    provider_label: PROVIDER_LABEL[r.provider] ?? r.provider,
+    // 분석 이후 제출물이 바뀌었으면 낡은 분석이다.
+    is_stale: Boolean(r.submission_seen_at && submissions && submissions.submitted_at > r.submission_seen_at),
+  }));
+  return { reviews };
 }
 
-/**
- * 제출물 하나를 지정한 모델로 분석한다 (운영자 전용).
- *
- * 응답은 완료된 결과가 아니라 **'분석 중' 행**이다 — 서버가 백그라운드에서 돌린다. 워커가
- * 1개라 요청 안에서 LLM 을 기다리면 그동안 서비스 전체가 멈추기 때문이다. 완료는 폴링으로
- * 확인한다.
- */
-export function analyzeSubmission(
-  submissionId: number,
-  provider?: string,
-  model?: string
-): Promise<SubmissionReview> {
-  return request(`/submissions/${submissionId}/analyze/`, {
-    method: 'POST',
-    body: JSON.stringify({ provider, model }),
-  });
+/** 제출물 하나를 분석한다 (운영자 전용). 응답은 '분석 중' 행이고 결과는 다시 불러와 확인한다. */
+export function analyzeSubmission(submissionId: number, provider?: string, model?: string): Promise<SubmissionReview> {
+  return callFunction('analyze-submission', { submission_id: submissionId, provider, model });
 }
 
 /** 대회의 제출물 전체를 한 모델로 분석한다 (운영자 전용, 심사 전에 한 번). */
@@ -437,8 +417,5 @@ export function analyzeContestSubmissions(
   provider?: string,
   model?: string
 ): Promise<{ queued: number; provider: string; model: string; reviews: SubmissionReview[] }> {
-  return request(`/contests/${slug}/analyze_submissions/`, {
-    method: 'POST',
-    body: JSON.stringify({ provider, model }),
-  });
+  return callFunction('analyze-submission', { contest: slug, provider, model });
 }
