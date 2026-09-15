@@ -1,0 +1,260 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "HACKMAN 개편 진행 순서",
+    "output": "migration.html",
+    "quality_profile": "showcase",
+    "views": [
+      {
+        "id": "happy-path",
+        "label": "순서대로 진행",
+        "focus": [
+          "prep",
+          "diagrams",
+          "design",
+          "schema",
+          "edge",
+          "datalayer",
+          "cutover"
+        ],
+        "note": "디자인을 먼저 배포하고, 백엔드는 api.ts 함수 이름을 계약으로 두고 뒤에서 바꾼다."
+      },
+      {
+        "id": "rollback",
+        "label": "전환 실패 시",
+        "focus": [
+          "cutover",
+          "rollback"
+        ],
+        "note": "Render는 전환 후 1주 동안 끄지 않는다. 스모크 테스트가 실패하면 Vercel 환경변수를 되돌린다."
+      }
+    ],
+    "legend": {
+      "entries": {
+        "external": {
+          "label": "준비"
+        },
+        "frontend": {
+          "label": "프론트 작업"
+        },
+        "database": {
+          "label": "DB · 규칙"
+        },
+        "backend": {
+          "label": "서버 함수"
+        },
+        "cloud": {
+          "label": "전환"
+        },
+        "security": {
+          "label": "롤백"
+        }
+      }
+    }
+  },
+  "lanes": [
+    {
+      "id": "front",
+      "label": "계획 · 프론트 (Vercel)"
+    },
+    {
+      "id": "supa",
+      "label": "Supabase"
+    },
+    {
+      "id": "ops",
+      "label": "전환"
+    },
+    {
+      "id": "recover",
+      "label": "롤백",
+      "variant": "exception"
+    }
+  ],
+  "phases": [
+    {
+      "id": "weekend1",
+      "label": "주말 1",
+      "fromCol": 0,
+      "toCol": 2
+    },
+    {
+      "id": "weekend2",
+      "label": "주말 2",
+      "fromCol": 3,
+      "toCol": 3,
+      "variant": "emphasis"
+    },
+    {
+      "id": "weekend3",
+      "label": "주말 3",
+      "fromCol": 4,
+      "toCol": 5,
+      "variant": "dashed"
+    }
+  ],
+  "groups": [
+    {
+      "id": "rewrite",
+      "label": "백엔드 재작성",
+      "lane": "supa",
+      "fromCol": 3,
+      "toCol": 4,
+      "variant": "emphasis"
+    }
+  ],
+  "mainPath": [
+    "prep",
+    "diagrams",
+    "design",
+    "schema",
+    "edge",
+    "datalayer",
+    "cutover"
+  ],
+  "nodes": [
+    {
+      "id": "prep",
+      "lane": "front",
+      "col": 0,
+      "type": "external",
+      "label": "0 착수 준비",
+      "sublabel": "계획 복사 · 브랜치"
+    },
+    {
+      "id": "diagrams",
+      "lane": "front",
+      "col": 1,
+      "type": "frontend",
+      "label": "구조도 3장",
+      "sublabel": "archify"
+    },
+    {
+      "id": "design",
+      "lane": "front",
+      "col": 2,
+      "type": "frontend",
+      "label": "A 디자인 개편",
+      "sublabel": "갤러리 · 상세 · 라우팅",
+      "tag": "지금 백엔드 위에서"
+    },
+    {
+      "id": "schema",
+      "lane": "supa",
+      "col": 3,
+      "type": "database",
+      "label": "B 스키마 · RLS",
+      "sublabel": "RPC · Auth · Realtime"
+    },
+    {
+      "id": "edge",
+      "lane": "supa",
+      "col": 4,
+      "type": "backend",
+      "label": "C Edge Functions",
+      "sublabel": "LLM · GitHub · 추천",
+      "width": 132
+    },
+    {
+      "id": "datalayer",
+      "lane": "front",
+      "col": 5,
+      "type": "frontend",
+      "label": "C api.ts 교체",
+      "sublabel": "supabase-js · 구독"
+    },
+    {
+      "id": "cutover",
+      "lane": "ops",
+      "col": 5,
+      "type": "cloud",
+      "label": "D 이전 · 전환",
+      "sublabel": "건수 대조 · 스모크",
+      "tag": "Render 1주 유지"
+    },
+    {
+      "id": "rollback",
+      "lane": "recover",
+      "col": 5,
+      "type": "security",
+      "label": "Render로 복귀",
+      "sublabel": "환경변수 되돌림"
+    }
+  ],
+  "edges": [
+    {
+      "id": "prep-diagrams",
+      "from": "prep",
+      "to": "diagrams"
+    },
+    {
+      "id": "diagrams-design",
+      "from": "diagrams",
+      "to": "design",
+      "label": "현재 구조 확인",
+      "variant": "emphasis"
+    },
+    {
+      "id": "design-schema",
+      "from": "design",
+      "to": "schema",
+      "label": "A 배포"
+    },
+    {
+      "id": "schema-edge",
+      "from": "schema",
+      "to": "edge",
+      "label": "pgTAP 통과",
+      "variant": "emphasis"
+    },
+    {
+      "id": "edge-datalayer",
+      "from": "edge",
+      "to": "datalayer",
+      "label": "Deno 테스트 통과"
+    },
+    {
+      "id": "datalayer-cutover",
+      "from": "datalayer",
+      "to": "cutover",
+      "label": "실시간 갱신 확인",
+      "variant": "emphasis"
+    },
+    {
+      "id": "cutover-rollback",
+      "from": "cutover",
+      "to": "rollback",
+      "label": "스모크 실패",
+      "variant": "security",
+      "role": "error"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "emerald",
+      "title": "단계별 통과 조건",
+      "items": [
+        "A: 빌드 통과, 기존 테스트 155건 그대로 통과",
+        "B: supabase test db 전부 통과, anon 키로 비공개 테이블 조회 차단",
+        "C: 점수 저장 시 다른 브라우저 스코어보드가 폴링 없이 갱신"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "전환 전에 알릴 것",
+      "items": [
+        "로그인이 아이디에서 이메일로 바뀜",
+        "기존 회원은 비밀번호 재설정 메일로 이전"
+      ]
+    },
+    {
+      "dot": "slate",
+      "title": "전환 후",
+      "items": [
+        "1주 문제없으면 Render 삭제, Django 테이블은 백업 후 삭제",
+        "DEVELOPMENT.md 아키텍처 드라이버 표 재작성"
+      ]
+    }
+  ]
+}

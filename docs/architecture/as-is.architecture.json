@@ -1,0 +1,380 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "HACKMAN 현재 구조 (2026-09-14)",
+    "output": "as-is.html",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/gustjr3332/hackman-sju",
+      "provider": "github",
+      "revision": "beaa11cb014f8ec8bcd62006745d8357f7923467"
+    },
+    "views": [
+      {
+        "id": "request-path",
+        "label": "요청 경로",
+        "focus": [
+          "users",
+          "spa",
+          "api",
+          "db"
+        ],
+        "note": "브라우저에서 DB까지. 모든 요청이 워커 1개를 지난다."
+      },
+      {
+        "id": "cache-path",
+        "label": "캐시",
+        "focus": [
+          "api",
+          "cache",
+          "spa"
+        ],
+        "note": "5초 폴링을 서버 캐시와 ETag로 흡수한다. 캐시는 프로세스 메모리라 워커를 늘리면 무효화가 갈라진다."
+      },
+      {
+        "id": "llm-path",
+        "label": "LLM · GitHub",
+        "focus": [
+          "api",
+          "thread",
+          "llm",
+          "github"
+        ],
+        "note": "프로필 추출은 요청 안에서 30초 제한, 저장소 분석은 스레드로 빼서 180초 제한."
+      },
+      {
+        "id": "ops",
+        "label": "운영 자동화",
+        "focus": [
+          "actions",
+          "db"
+        ],
+        "note": "Supabase 무료 플랜의 7일 정지와 백업 부재를 GitHub Actions로 막는다."
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "users",
+      "type": "external",
+      "label": "사용자",
+      "sublabel": "운영자·심사위원·참가자",
+      "pos": [
+        40,
+        300
+      ],
+      "size": [
+        150,
+        64
+      ]
+    },
+    {
+      "id": "spa",
+      "type": "frontend",
+      "label": "React SPA",
+      "sublabel": "Vite · Vercel",
+      "brand": "vercel",
+      "pos": [
+        280,
+        300
+      ],
+      "size": [
+        160,
+        64
+      ],
+      "tag": "5초 폴링",
+      "sources": [
+        {
+          "path": "frontend/src/ContestDetail.tsx",
+          "line": 38,
+          "label": "POLL_INTERVAL_MS"
+        },
+        {
+          "path": "frontend/src/api.ts",
+          "line": 143,
+          "label": "conditionalGet (ETag)"
+        }
+      ]
+    },
+    {
+      "id": "api",
+      "type": "backend",
+      "label": "Django + DRF",
+      "sublabel": "Render · gunicorn",
+      "brand": "render",
+      "pos": [
+        540,
+        300
+      ],
+      "size": [
+        170,
+        64
+      ],
+      "tag": "워커 1개 · 15분 슬립",
+      "sources": [
+        {
+          "path": "backend/Procfile",
+          "line": 1,
+          "label": "gunicorn (-w 없음)"
+        },
+        {
+          "path": "backend/contests/views.py",
+          "line": 132,
+          "label": "scoreboard"
+        }
+      ]
+    },
+    {
+      "id": "db",
+      "type": "database",
+      "label": "PostgreSQL",
+      "sublabel": "Supabase · 세션 풀러",
+      "brand": "supabase",
+      "pos": [
+        820,
+        300
+      ],
+      "size": [
+        170,
+        64
+      ],
+      "sources": [
+        {
+          "path": "backend/config/settings.py",
+          "line": 122,
+          "label": "DATABASE_URL"
+        }
+      ]
+    },
+    {
+      "id": "cache",
+      "type": "database",
+      "label": "LocMemCache",
+      "sublabel": "프로세스 메모리",
+      "pos": [
+        540,
+        110
+      ],
+      "size": [
+        170,
+        64
+      ],
+      "sources": [
+        {
+          "path": "backend/config/settings.py",
+          "line": 148,
+          "label": "CACHES"
+        },
+        {
+          "path": "backend/config/settings.py",
+          "line": 157,
+          "label": "스코어보드 3초"
+        }
+      ]
+    },
+    {
+      "id": "actions",
+      "type": "cloud",
+      "label": "GitHub Actions",
+      "sublabel": "keepalive · backup",
+      "brand": "github-actions",
+      "pos": [
+        820,
+        110
+      ],
+      "size": [
+        170,
+        64
+      ],
+      "sources": [
+        {
+          "path": ".github/workflows/supabase-keepalive.yml",
+          "line": 12,
+          "label": "매일"
+        },
+        {
+          "path": ".github/workflows/supabase-backup.yml",
+          "line": 11,
+          "label": "주 1회 pg_dump"
+        }
+      ]
+    },
+    {
+      "id": "thread",
+      "type": "backend",
+      "label": "심사 보조 스레드",
+      "sublabel": "threading · daemon",
+      "pos": [
+        540,
+        500
+      ],
+      "size": [
+        170,
+        64
+      ],
+      "sources": [
+        {
+          "path": "backend/contests/judge_assist.py",
+          "line": 332,
+          "label": "run_in_background"
+        }
+      ]
+    },
+    {
+      "id": "llm",
+      "type": "external",
+      "label": "LLM 3사",
+      "sublabel": "Anthropic · OpenAI · Google",
+      "pos": [
+        820,
+        500
+      ],
+      "size": [
+        190,
+        64
+      ],
+      "sources": [
+        {
+          "path": "backend/contests/llm/base.py",
+          "line": 27,
+          "label": "PROVIDERS"
+        }
+      ]
+    },
+    {
+      "id": "github",
+      "type": "external",
+      "label": "GitHub API",
+      "sublabel": "저장소 읽기",
+      "brand": "github",
+      "pos": [
+        280,
+        500
+      ],
+      "size": [
+        160,
+        64
+      ],
+      "sources": [
+        {
+          "path": "backend/contests/github.py",
+          "line": 131,
+          "label": "GithubProxyView"
+        }
+      ]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "Render 무료 인스턴스",
+      "wraps": [
+        "api",
+        "cache",
+        "thread"
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "id": "browse",
+      "from": "users",
+      "to": "spa",
+      "label": "HTTPS",
+      "variant": "emphasis"
+    },
+    {
+      "id": "rest",
+      "from": "spa",
+      "to": "api",
+      "label": "REST + JWT",
+      "variant": "emphasis"
+    },
+    {
+      "id": "sql",
+      "from": "api",
+      "to": "db",
+      "label": "SQL :5432",
+      "variant": "emphasis"
+    },
+    {
+      "id": "cache-rw",
+      "from": "api",
+      "to": "cache",
+      "label": "스코어보드·GitHub 응답",
+      "fromSide": "top",
+      "toSide": "bottom"
+    },
+    {
+      "id": "keepalive",
+      "from": "actions",
+      "to": "db",
+      "label": "keepalive·백업",
+      "variant": "dashed",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "labelAt": [
+        905,
+        237
+      ]
+    },
+    {
+      "id": "extract",
+      "from": "api",
+      "to": "llm",
+      "label": "프로필 추출 30초",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "id": "spawn",
+      "from": "api",
+      "to": "thread",
+      "label": "분석 시작",
+      "variant": "dashed",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "labelDy": 80,
+      "labelDx": -42
+    },
+    {
+      "id": "analyze",
+      "from": "thread",
+      "to": "llm",
+      "label": "저장소 분석 180초"
+    },
+    {
+      "id": "collect",
+      "from": "thread",
+      "to": "github",
+      "label": "파일 수집"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "rose",
+      "title": "가장 큰 제약",
+      "items": [
+        "gunicorn 워커 1개: 한 요청이 멈추면 스코어보드 폴링까지 멈춘다",
+        "Render 무료는 15분 유휴 후 슬립, 첫 응답 30~50초 (2026-09-14 실측 43초)"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "그래서 생긴 설계",
+      "items": [
+        "LLM 호출 30초 타임아웃, 긴 분석은 스레드로",
+        "WebSocket 대신 5초 폴링 + 서버 캐시 + ETag"
+      ]
+    },
+    {
+      "dot": "slate",
+      "title": "운영",
+      "items": [
+        "Supabase 무료: 7일 무활동 정지는 매일 keepalive로",
+        "자동 백업 없음: 주 1회 pg_dump 아티팩트"
+      ]
+    }
+  ]
+}

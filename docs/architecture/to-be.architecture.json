@@ -1,0 +1,327 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "HACKMAN 목표 구조 (Supabase)",
+    "output": "to-be.html",
+    "quality_profile": "showcase",
+    "views": [
+      {
+        "id": "request-path",
+        "label": "요청 경로",
+        "focus": [
+          "users",
+          "spa",
+          "rest",
+          "db"
+        ],
+        "note": "권한 규칙은 RLS와 Postgres 함수가 지킨다. 워커가 없어 한 요청이 전체를 묶지 않는다."
+      },
+      {
+        "id": "realtime",
+        "label": "실시간",
+        "focus": [
+          "db",
+          "realtime",
+          "spa"
+        ],
+        "note": "점수 변경 시 신호만 보내고 화면이 스코어보드 함수를 다시 부른다. 결선 비공개는 함수가 지킨다."
+      },
+      {
+        "id": "llm-path",
+        "label": "LLM · GitHub",
+        "focus": [
+          "spa",
+          "edge",
+          "llm",
+          "github",
+          "db"
+        ],
+        "note": "Edge Function은 벽시계 150초. 분석은 응답 후 waitUntil로 계속 돈다."
+      },
+      {
+        "id": "auth",
+        "label": "인증",
+        "focus": [
+          "spa",
+          "auth"
+        ],
+        "note": "이메일 로그인. 기존 회원은 비밀번호 재설정으로 옮긴다."
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "users",
+      "type": "external",
+      "label": "사용자",
+      "sublabel": "운영자·심사위원·참가자",
+      "pos": [
+        40,
+        300
+      ],
+      "size": [
+        150,
+        64
+      ]
+    },
+    {
+      "id": "spa",
+      "type": "frontend",
+      "label": "React SPA",
+      "sublabel": "Vercel · supabase-js",
+      "brand": "vercel",
+      "pos": [
+        270,
+        300
+      ],
+      "size": [
+        170,
+        64
+      ]
+    },
+    {
+      "id": "rest",
+      "type": "backend",
+      "label": "PostgREST",
+      "sublabel": "자동 REST · RPC",
+      "brand": "supabase",
+      "pos": [
+        530,
+        300
+      ],
+      "size": [
+        170,
+        64
+      ]
+    },
+    {
+      "id": "db",
+      "type": "database",
+      "label": "PostgreSQL",
+      "sublabel": "RLS · 함수 · 트리거",
+      "brand": "postgresql",
+      "pos": [
+        800,
+        300
+      ],
+      "size": [
+        170,
+        64
+      ]
+    },
+    {
+      "id": "realtime",
+      "type": "messagebus",
+      "label": "Realtime",
+      "sublabel": "DB 브로드캐스트",
+      "pos": [
+        530,
+        110
+      ],
+      "size": [
+        170,
+        64
+      ]
+    },
+    {
+      "id": "auth",
+      "type": "security",
+      "label": "Supabase Auth",
+      "sublabel": "이메일 · JWT",
+      "pos": [
+        270,
+        490
+      ],
+      "size": [
+        170,
+        64
+      ]
+    },
+    {
+      "id": "edge",
+      "type": "backend",
+      "label": "Edge Functions",
+      "sublabel": "TypeScript · Deno",
+      "pos": [
+        530,
+        490
+      ],
+      "size": [
+        170,
+        64
+      ],
+      "tag": "벽시계 150초"
+    },
+    {
+      "id": "llm",
+      "type": "external",
+      "label": "LLM 3사",
+      "sublabel": "Anthropic · OpenAI · Google",
+      "pos": [
+        800,
+        490
+      ],
+      "size": [
+        190,
+        64
+      ]
+    },
+    {
+      "id": "github",
+      "type": "external",
+      "label": "GitHub API",
+      "sublabel": "저장소 읽기",
+      "brand": "github",
+      "pos": [
+        530,
+        670
+      ],
+      "size": [
+        170,
+        64
+      ]
+    },
+    {
+      "id": "actions",
+      "type": "cloud",
+      "label": "GitHub Actions",
+      "sublabel": "keepalive · backup",
+      "brand": "github-actions",
+      "pos": [
+        1060,
+        300
+      ],
+      "size": [
+        170,
+        64
+      ]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "Supabase 프로젝트",
+      "wraps": [
+        "rest",
+        "db",
+        "realtime",
+        "auth",
+        "edge"
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "id": "browse",
+      "from": "users",
+      "to": "spa",
+      "label": "HTTPS",
+      "variant": "emphasis"
+    },
+    {
+      "id": "query",
+      "from": "spa",
+      "to": "rest",
+      "label": "supabase-js",
+      "variant": "emphasis"
+    },
+    {
+      "id": "sql",
+      "from": "rest",
+      "to": "db",
+      "label": "RLS 적용",
+      "variant": "emphasis"
+    },
+    {
+      "id": "signal",
+      "from": "db",
+      "to": "realtime",
+      "label": "점수 없는 신호",
+      "variant": "dashed",
+      "fromSide": "top",
+      "toSide": "right"
+    },
+    {
+      "id": "push",
+      "from": "realtime",
+      "to": "spa",
+      "label": "scoreboard_changed",
+      "variant": "dashed",
+      "fromSide": "left",
+      "toSide": "top"
+    },
+    {
+      "id": "login",
+      "from": "spa",
+      "to": "auth",
+      "label": "로그인",
+      "variant": "security",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "labelDy": 76
+    },
+    {
+      "id": "invoke",
+      "from": "spa",
+      "to": "edge",
+      "label": "함수 호출"
+    },
+    {
+      "id": "analyze",
+      "from": "edge",
+      "to": "llm",
+      "label": "분석 · waitUntil"
+    },
+    {
+      "id": "read-repo",
+      "from": "edge",
+      "to": "github",
+      "label": "파일 수집",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "labelDy": 71
+    },
+    {
+      "id": "store",
+      "from": "edge",
+      "to": "db",
+      "label": "결과 저장",
+      "fromSide": "top",
+      "toSide": "bottom"
+    },
+    {
+      "id": "keepalive",
+      "from": "actions",
+      "to": "db",
+      "label": "keepalive·백업",
+      "variant": "dashed"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "emerald",
+      "title": "사라지는 제약",
+      "items": [
+        "gunicorn 워커 1개와 Render 슬립(콜드스타트 30~50초)",
+        "프로세스 메모리 캐시와 5초 폴링"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "새로 생기는 제약",
+      "items": [
+        "Edge Function 벽시계 150초 · CPU 2초",
+        "권한 규칙의 정본이 RLS와 Postgres 함수로 옮겨 감"
+      ]
+    },
+    {
+      "dot": "slate",
+      "title": "그대로 두는 것",
+      "items": [
+        "프론트 호스팅은 Vercel (Supabase는 정적 호스팅 없음)",
+        "keepalive·주간 백업 워크플로 (DB 직접 접속)"
+      ]
+    }
+  ]
+}
