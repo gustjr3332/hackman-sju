@@ -169,6 +169,25 @@ is_staff, …기존 Profile 필드)`. 컬럼·제약은 `backend/contests/models
 
 ---
 
+### B 진행 기록 (2026-09-15, 완료)
+
+- 로컬: `npx supabase start -x imgproxy,logflare,vector,supavisor,edge-runtime`, 테스트는 `npx supabase test db`
+  (pgTAP 4개 파일, 112건 통과), `npx supabase db lint` 오류 없음. 스토리지는 쓰지 않아 `config.toml` 에서 껐다.
+- 계획보다 늘어난 것:
+  - **조회용 뷰** `contest_list`·`team_list`·`judge_list`·`score_list`. Django 응답 모양(예: 팀의
+    participants 에 username, `presentation_due_at`)을 DB 에서 그대로 만들어, C 에서 `api.ts` 가 모양을
+    다시 조립하지 않게 했다.
+  - RPC `assign_judge`(아이디로 배정)·`set_team_schedule`(발표 순서·시간은 운영자만). 팀원이 팀을 고칠
+    권한이 있어도 이 열은 못 건드리게 열 단위 권한으로 막았다.
+  - 태그 필드는 JSON 대신 `text[]`.
+- 실시간 규칙: 토픽 `contest:{slug}`, 이벤트 `changed`, 페이로드는 바뀐 테이블 이름뿐(점수 없음).
+  대회·팀·참가자·제출물·점수가 바뀔 때 보낸다.
+- supabase-js 로 끝까지 확인한 것: 가입 시 프로필 생성, 이메일 로그인, anon 키로 `awards`·`scores`·
+  `submission_reviews`·`github_cache`·`profiles` 조회 0건, 비로그인 구독자의 신호 수신, 상태 제한 메시지가
+  REST 오류로 그대로 전달(code 42501).
+- **C 에서 반영할 것:** 신호는 구독이 붙은 뒤에 쓴 변경만 온다(로컬에서는 첫 구독 때 복제 스트림이 열리는
+  사이의 변경을 실제로 놓쳤다). 화면은 `SUBSCRIBED` 직후 한 번 다시 불러와야 한다.
+
 ## C. Edge Functions + 프론트 데이터 계층 (주말 3)
 
 ### Edge Functions (`supabase/functions/`)
