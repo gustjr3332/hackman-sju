@@ -10,7 +10,7 @@ export type Route =
   | { name: 'gallery'; slug: string }
   | { name: 'project'; slug: string; teamId: number };
 
-export function parseRoute(path: string): Route {
+function parseRoute(path: string): Route {
   const [, c, slug, section, id] = path.split('/');
   if (c !== 'c' || !slug) return { name: 'list' };
   const s = decodeURIComponent(slug);
