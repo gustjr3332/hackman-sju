@@ -76,11 +76,11 @@ export function AuthPanel({ onLoggedIn }: AuthPanelProps) {
         />
       )}
       <input
-        type="email"
-        placeholder="이메일"
+        type={mode === 'login' ? 'text' : 'email'}
+        placeholder={mode === 'login' ? '아이디 또는 이메일' : '이메일'}
         value={email}
         onChange={(e) => setEmail(e.target.value)}
-        autoComplete="email"
+        autoComplete={mode === 'login' ? 'username' : 'email'}
         required
       />
       {!isReset && (
@@ -126,8 +126,8 @@ export function AuthPanel({ onLoggedIn }: AuthPanelProps) {
       )}
 
       <p className="auth-footnote">
-        로그인은 이메일로 합니다. 가입한 계정은 참가자이고, 심사위원은 운영자가 배정하며 운영자
-        권한은 관리자가 부여합니다. 대회 목록과 스코어보드는 로그인 없이 볼 수 있습니다.
+        가입한 계정은 참가자이고, 심사위원은 운영자가 배정하며 운영자 권한은 관리자가 부여합니다.
+        대회 목록과 스코어보드는 로그인 없이 볼 수 있습니다.
       </p>
     </form>
   );

@@ -123,12 +123,15 @@ export async function register(username: string, email: string, password: string
   throw new ApiError(error.message);
 }
 
-/** 이메일로 로그인하고 아이디를 돌려준다. */
-export async function login(email: string, password: string): Promise<string> {
-  const { error } = await supabase.auth.signInWithPassword({ email, password });
-  if (error) {
-    throw new ApiError(/invalid login/i.test(error.message) ? '이메일 또는 비밀번호가 맞지 않습니다.' : error.message);
-  }
+/** 아이디 또는 이메일로 로그인하고 아이디를 돌려준다. 아이디→이메일 조회는 서버(Edge Function)
+ * 안에서만 하고 클라이언트로는 절대 넘어오지 않는다 — 자세한 이유는 그 함수 주석 참고. */
+export async function login(identifier: string, password: string): Promise<string> {
+  const { access_token, refresh_token } = await callFunction<{ access_token: string; refresh_token: string }>(
+    'login',
+    { identifier, password }
+  );
+  const { error } = await supabase.auth.setSession({ access_token, refresh_token });
+  if (error) throw new ApiError(error.message);
   const me = await fetchMe();
   storeUsername(me.username);
   return me.username;

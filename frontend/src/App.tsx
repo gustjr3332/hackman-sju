@@ -30,8 +30,9 @@ export default function App() {
   const [username, setUsername] = useState<string | null>(getStoredUsername());
   const [isOrganizer, setIsOrganizer] = useState(false);
   const [showCreateForm, setShowCreateForm] = useState(false);
-  // 로그인 폼을 접고 관람만 하는 상태. 로그인하면 의미가 없어지므로 함께 해제한다.
-  const [browsing, setBrowsing] = useState(false);
+  // 로그인 폼은 기본으로 접혀 있다. 대회는 로그인 없이도 다 둘러볼 수 있어서 헤더의
+  // "로그인" 버튼을 눌렀을 때만 편다.
+  const [showAuth, setShowAuth] = useState(false);
   const [recovering, setRecovering] = useState(false);
 
   // 상세 화면은 항상 최신 목록의 대회 객체를 본다 (상태 전이 후에도 동기화 유지).
@@ -111,7 +112,7 @@ export default function App() {
   function handleLoggedIn(name: string) {
     setUsername(name);
     setStatus('');
-    setBrowsing(false);
+    setShowAuth(false);
     loadContests();
   }
 
@@ -198,9 +199,9 @@ export default function App() {
           )}
         </div>
         <div className="header-right">
-          {!username && !browsing && (
-            <button type="button" className="link-btn" onClick={() => setBrowsing(true)}>
-              로그인 없이 둘러보기
+          {!username && (
+            <button type="button" className="btn-login" onClick={() => setShowAuth((v) => !v)}>
+              {showAuth ? '닫기' : '로그인'}
             </button>
           )}
           <ThemeToggle />
@@ -232,19 +233,8 @@ export default function App() {
           />
         )}
 
-        {/* 관람자는 로그인 없이 목록·스코어보드를 볼 수 있다. 패널을 접어 두면 대회가
-            바로 보이고, 필요할 때 헤더에서 다시 연다. */}
-        {!username &&
-          (browsing ? (
-            <p className="guest-note">
-              둘러보는 중입니다 — 팀 참가·제출·채점은 로그인이 필요합니다.{' '}
-              <button type="button" className="link-btn" onClick={() => setBrowsing(false)}>
-                로그인하기
-              </button>
-            </p>
-          ) : (
-            <AuthPanel onLoggedIn={handleLoggedIn} />
-          ))}
+        {/* 대회 목록·상세·스코어보드는 로그인 없이 다 보인다. 로그인 폼은 헤더 버튼으로만 편다. */}
+        {!username && showAuth && <AuthPanel onLoggedIn={handleLoggedIn} />}
 
         {selected && route.name === 'gallery' ? (
           <Gallery contest={selected} isOrganizer={isOrganizer} />
@@ -348,7 +338,6 @@ export default function App() {
 
       <footer className="site-footer">
         <p id="sync-status">{status}</p>
-        <p className="site-credit">HACKMAN · Supabase + React</p>
       </footer>
     </>
   );

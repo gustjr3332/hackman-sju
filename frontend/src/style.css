@@ -2126,9 +2126,7 @@ body {
   color: var(--muted);
 }
 
-/* ---------- 관람 모드 (로그인 없이 둘러보기) ---------- */
-
-/* 텍스트 링크처럼 보이는 버튼. 헤더와 안내문 양쪽에서 쓴다. */
+/* 텍스트 링크처럼 보이는 버튼. AuthPanel 안내문에서 쓴다. */
 .link-btn {
   background: none;
   border: none;
@@ -2145,13 +2143,21 @@ body {
   color: var(--ink);
 }
 
-.guest-note {
-  margin: 0;
-  padding: 12px 14px;
-  border-left: 3px solid var(--line);
-  background: var(--paper-raised);
+/* 헤더의 로그인 버튼. 대회는 로그인 없이 다 보이므로 이 버튼 하나로만 로그인 폼을 연다. */
+.btn-login {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 6px 14px;
+  cursor: pointer;
+  font-family: var(--font-ui);
   font-size: 0.85rem;
-  color: var(--muted);
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.btn-login:hover {
+  border-color: var(--ink);
 }
 
 /* ---------- 기술 스택 선택 (프로필) ----------
