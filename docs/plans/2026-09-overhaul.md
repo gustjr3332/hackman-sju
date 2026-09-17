@@ -245,6 +245,57 @@ is_staff, …기존 Profile 필드)`. 컬럼·제약은 `backend/contests/models
 6. 문서: `DEVELOPMENT.md` 아키텍처 드라이버 표 재작성(워커 1개 제약 소멸, 새 제약은 Edge 150초·
    CPU 2초·RLS), 배포 절차, 트러블슈팅. `README.md` 로그인 안내. keepalive 워크플로는 DB 직접 접속이라 그대로 동작
 
+### D 진행 기록 (2026-09-15, 리허설 완료 · 운영 전환 대기)
+
+- **보안 구멍 발견·수정:** Django 테이블(`auth_user`, `contests_*`)이 새 스키마와 같은 public 에 있고
+  RLS 꺼짐 + anon 전체 권한이라, anon 키로 REST 를 부르면 비밀번호 해시를 읽고 행을 지울 수 있었다
+  (로컬에서 `auth_user?select=password` 로 해시 확인). 프론트가 anon 키를 번들에 싣는 순간 운영도 같다.
+  `20260915000200_lock_django_tables.sql` 로 RLS 켜고 anon·authenticated 권한 회수. 이제 42501.
+- **변환 스크립트는 SQL 한 파일:** `supabase/scripts/migrate-from-django.sql`. 같은 DB 라 Node·키 없이
+  psql 로 한 트랜잭션에 옮긴다. 계획의 "Auth admin API 로 생성" 대신 `auth.users`·`auth.identities` 에
+  직접 넣었다(토큰 컬럼은 NULL 아닌 '' — NULL 이면 GoTrue 로그인이 깨진다). Django id 는
+  `overriding system value` 로 유지해 매핑 표가 필요 없다. 상태 제한 트리거는 트랜잭션 동안만
+  `disable trigger user`(FK·check 는 계속 검사). 기본은 미리보기(롤백), `-v apply=1` 일 때만 커밋.
+  이메일 없는 계정·겹치는 이메일이 있으면 시작 전에 멈춘다. 건수가 하나라도 다르면 되돌린다.
+- **재설정 메일을 일괄 발송하지 않는다.** 공지로 "로그인 화면의 비밀번호를 잊으셨나요?"를 안내한다.
+  발송 제한에 덜 걸리고, 운영자가 대신 메일을 뿌릴 필요가 없다.
+- **리허설(로컬, 도커의 Django DB 사본):** 이메일 없는 계정에서 멈춤 확인 → 이메일 채운 뒤 11개 항목
+  건수 일치 → 반영. 이어서 확인: 빈 비밀번호 로그인 실패, 재설정 메일 Mailpit 도착, 새 비밀번호로
+  로그인·username 유지, 프로필 skills 이전, 새 팀 id=6(시퀀스), join_creator·상태 제한 트리거 재가동,
+  anon 의 `auth_user` 조회 거부. pgTAP 112건 통과.
+- 운영에서 알게 된 제약: Supabase 기본 메일은 **프로젝트 팀원 주소로만, 시간당 2통**. 운영 전환 전에
+  커스텀 SMTP 필수.
+
+### 운영 전환 순서 (체크리스트)
+
+지금 당장 해도 되는 것(Django 무영향):
+1. ~~`npx supabase login` → `link --project-ref` → `db push`~~ **완료 (2026-09-16)**.
+   프로젝트 `ugrooqkeyhgldrtdriba`(ap-southeast-1)에 마이그레이션 3개 반영.
+   anon 키 확인 결과 `auth_user`·`contests_*`·`django_*` 전부 `42501 permission denied`(읽기·쓰기 모두),
+   새 테이블 `contests`·`tech_stacks` 는 200, `awards`·`scores`·`submission_reviews` 는 RLS 로 빈 배열.
+   Django(`/api/contests/`)는 그대로 동작한다.
+2. ~~대시보드 Auth: SMTP 설정~~ **완료 (2026-09-16)**.
+   Resend + 발신 주소 `onboarding@resend.dev`(도메인 미보유라 임시. 스팸함으로 갈 수 있음 — 정식
+   도메인 생기면 발신 주소만 교체). Site URL·Redirect URL 을 `https://hackman-sju.vercel.app` 로 설정.
+   `auth/v1/invite` 로 실제 수신 확인(초대 수락·비밀번호 설정까지 완료 후 테스트 계정은 삭제).
+3. ~~시크릿 등록 → `functions deploy`~~ **완료 (2026-09-16)**.
+   등록한 시크릿은 `GOOGLE_API_KEY`·`GITHUB_TOKEN` 둘뿐이다. `ANTHROPIC_API_KEY`·`OPENAI_API_KEY`
+   는 쓰지 않기로 해서 넣지 않았다. `_shared/llm.ts` 의 `keyOf` 가 키 있는 제공사만 노출하므로
+   **모델 선택기에는 Google 만 뜬다**(Render 에서는 3사 전부 떴다). 나중에 되살리려면 키를 등록하고
+   `functions deploy` 를 다시 돌리면 된다. 자리표시자 값을 넣으면 "키 있음"으로 잘못 판단하니 주의.
+   `SUPABASE_URL`·`SUPABASE_SERVICE_ROLE_KEY` 는 런타임이 자동으로 넣으므로 등록하지 않는다.
+   함수 5개(`analyze-submission`·`github`·`llm-models`·`profile-extract`·`recommendations`)
+   전부 배포됐고, anon 키로 호출하면 `401 로그인이 필요합니다` 가 나온다(부팅·인증 가드 정상).
+
+전환 당일(약 1시간):
+4. 공지 후 쓰기 중단, `supabase-backup.yml` 수동 실행
+5. Django admin 에서 이메일 없는 계정(`organizer1`, `judge1` 등)과 가짜 주소(`admin@example.com`)에 실제 이메일 입력
+6. `psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/scripts/migrate-from-django.sql` (미리보기) → 표 확인 → `-v apply=1`
+7. Vercel 환경변수 `VITE_SUPABASE_URL`·`VITE_SUPABASE_ANON_KEY` 설정, `VITE_API_BASE_URL` 삭제 → 브랜치 main 병합 → 배포
+8. 4개 역할 스모크 테스트, 공지: "이메일로 로그인, 처음 한 번은 비밀번호 재설정"
+
+1주 뒤: Render 서비스 삭제 → Django 테이블 백업 후 drop → `backend/` 제거 → 문서(6번) 갱신
+
 ---
 
 ## 위험과 미결
