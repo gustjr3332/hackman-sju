@@ -207,7 +207,7 @@ export default function App() {
           <ThemeToggle />
           {username && (
             <div className="auth-status">
-              {/* 이니셜 아바타 + 이름/역할 2줄 (DESIGN.md 헤더 규격). */}
+              {/* 이니셜 아바타 + 이름/역할 2줄 (docs/REFERENCE.md 헤더 규격). */}
               <span className="avatar" aria-hidden="true">
                 {username.slice(0, 1).toUpperCase()}
               </span>
@@ -312,7 +312,7 @@ export default function App() {
                   tabIndex={0}
                   onKeyDown={(e) => e.key === 'Enter' && navigate(paths.contest(contest.slug))}
                 >
-                  {/* 상태 점·라벨 → 대회명 → 한 줄 설명 → 헤어라인 → 모노 메타 (DESIGN.md 카드 규격). */}
+                  {/* 상태 점·라벨 → 대회명 → 한 줄 설명 → 헤어라인 → 모노 메타 (docs/REFERENCE.md 카드 규격). */}
                   <span className={`status-badge status-${contest.status}`}>
                     {STATUS_LABEL[contest.status]}
                   </span>

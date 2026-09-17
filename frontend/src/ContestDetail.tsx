@@ -653,7 +653,7 @@ function JudgePanel({ teams, myScores, disabled, onScored, contestStartAt }: Jud
   );
 }
 
-/** 접힘/펼침 표시. 딩벳 문자 대신 SVG 로 그린다 (DESIGN.md "아이콘 · 모션"). */
+/** 접힘/펼침 표시. 딩벳 문자 대신 SVG 로 그린다 (docs/REFERENCE.md "아이콘 · 모션"). */
 function Chevron({ open }: { open: boolean }) {
   return (
     <svg

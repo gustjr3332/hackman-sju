@@ -41,7 +41,7 @@ export function SubmissionReviewPanel({
         onClick={() => setOpen((v) => !v)}
       >
         {open ? '심사 도구 닫기' : '심사 도구 열기 (데모 · 코드)'}
-        {/* 딩벳 문자 대신 SVG (DESIGN.md "아이콘 · 모션") */}
+        {/* 딩벳 문자 대신 SVG (docs/REFERENCE.md "아이콘 · 모션") */}
         <svg
           className={`chevron${open ? ' open' : ''}`}
           width="14"

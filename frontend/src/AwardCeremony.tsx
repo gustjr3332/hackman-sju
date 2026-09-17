@@ -115,7 +115,7 @@ export function AwardCeremony({ contestSlug, finalScoreboard }: AwardCeremonyPro
   );
 }
 
-/** 컨페티 색은 팔레트만 쓴다 (DESIGN.md "아이콘 · 모션"). 무대가 어두운 배경 고정이라
+/** 컨페티 색은 팔레트만 쓴다 (docs/REFERENCE.md "아이콘 · 모션"). 무대가 어두운 배경 고정이라
  *  라이트/다크 토큰 대신 다크 액센트 값을 직접 쓴다. */
 const CONFETTI_COLORS = ['#3fa372', '#e08148', '#6c93c7', '#f3f4f1'];
 const CONFETTI_COUNT = 34;

@@ -168,5 +168,5 @@
 
 ---
 
-개발·배포·아키텍처 문서는 [DEVELOPMENT.md](DEVELOPMENT.md), 화면 디자인 기준은
-[DESIGN.md](DESIGN.md)에 있습니다.
+백엔드·AI 개발 문서는 [DEVELOPMENT.md](DEVELOPMENT.md), 화면 디자인 기준과 설계 결정 기록은
+[docs/REFERENCE.md](docs/REFERENCE.md)에 있습니다.
