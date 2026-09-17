@@ -287,14 +287,33 @@ is_staff, …기존 Profile 필드)`. 컬럼·제약은 `backend/contests/models
    함수 5개(`analyze-submission`·`github`·`llm-models`·`profile-extract`·`recommendations`)
    전부 배포됐고, anon 키로 호출하면 `401 로그인이 필요합니다` 가 나온다(부팅·인증 가드 정상).
 
-전환 당일(약 1시간):
-4. 공지 후 쓰기 중단, `supabase-backup.yml` 수동 실행
-5. Django admin 에서 이메일 없는 계정(`organizer1`, `judge1` 등)과 가짜 주소(`admin@example.com`)에 실제 이메일 입력
-6. `psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/scripts/migrate-from-django.sql` (미리보기) → 표 확인 → `-v apply=1`
-7. Vercel 환경변수 `VITE_SUPABASE_URL`·`VITE_SUPABASE_ANON_KEY` 설정, `VITE_API_BASE_URL` 삭제 → 브랜치 main 병합 → 배포
-8. 4개 역할 스모크 테스트, 공지: "이메일로 로그인, 처음 한 번은 비밀번호 재설정"
+전환 당일(약 1시간) — **완료 (2026-09-16~17)**:
+4. ~~공지 후 쓰기 중단, 백업~~ **의도적으로 생략**. 실사용자가 없는 테스트 단계라 사용자
+   판단으로 건너뜀(공지 대상 없음, 백업은 이미 로컬 리허설로 대체 확인됨).
+5. Django admin 에서 이메일 정리 — 실제로는 계정이 `admin`(스태프) 하나뿐이었고 나머지 2개
+   (`gustjr3332`, `keycheck-*`)는 테스트 계정이라 이메일을 채우는 대신 **삭제**(딸린
+   `contests_judge`·`contests_profile` 행도 함께 정리). `admin` 이메일은 실사용 주소로 교체.
+6. ~~psql 미리보기 → apply~~ **완료**. 로컬 Docker 의 psql 로 프로덕션에 접속해 미리보기 →
+   11/11 건수 일치 확인 → `apply=1` 로 반영, `COMMIT`.
+7. ~~Vercel 환경변수 → main 병합~~ **완료**. `overhaul/devpost-supabase` 를 `main` 에 fast-forward
+   병합, push. Vercel 자동 배포 확인(`200`, 새 빌드).
+8. 스모크 테스트 — 비로그인 경로(목록·상세·갤러리·프로젝트 상세·결선 비공개)는
+   claude-in-chrome 으로 확인, 콘솔 에러 0. **로그인이 필요한 역할별 확인은 비밀번호를 다루는
+   구간이라 사용자가 직접** 진행(`docs/smoke-test.md` 체크리스트 참고). admin 아이디 로그인
+   확인 완료. 공지는 4번과 같은 이유로 생략.
 
-1주 뒤: Render 서비스 삭제 → Django 테이블 백업 후 drop → `backend/` 제거 → 문서(6번) 갱신
+전환 후 곁들여 고친 것(원래 계획엔 없던 사용자 요청):
+- 로그인 화면과 대회 목록 분리 — 기본 화면은 목록, 로그인은 헤더 "로그인" 버튼으로만 연다
+- 아이디 로그인 허용 — 새 Edge Function `login`. 아이디→이메일 조회는 service_role 로 서버
+  안에서만 하고 클라이언트로 이메일을 절대 넘기지 않는다. 존재하지 않는 아이디와 틀린 비밀번호가
+  같은 오류를 내 계정 존재 여부가 새지 않게 함
+- 푸터의 기술 스택 안내 줄 삭제
+- 데모 링크가 GitHub 저장소·`localhost`·사설 IP 대역이면 흰 화면 대신 안내 문구로 대체
+- 배포마다 반복할 스모크 테스트 체크리스트 추가(`docs/smoke-test.md`)
+
+1주 뒤(2026-09-23 경, 아직 안 함): Render 서비스 삭제 → Django 테이블 백업 후 drop →
+`backend/` 제거 → `DEVELOPMENT.md`·`README.md` 최종 정리(이번 전환으로 두 문서 일부 갱신은
+먼저 반영해 둠, 전체 재구성은 나중에 한 번에)
 
 ---
 

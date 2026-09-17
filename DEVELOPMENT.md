@@ -8,13 +8,19 @@
 [유사 프로젝트 조사](docs/research/similar-projects.md)(경쟁 제품 비교),
 [AI 활용성 검토](docs/research/ai-utility-review.md)(무엇에 AI 를 쓰고 무엇에 안 쓸지의 순위와 근거).
 
-- 백엔드: https://web-claude-t.onrender.com/api/contests/
+> **2026-09-17 갱신 — Supabase 전환 완료.** 백엔드를 Django+Render 에서 Supabase 네이티브
+> (Postgres RLS/RPC + Edge Functions)로 옮겼다. 아래 도메인 모델·기능 목록은 지금도 유효하지만,
+> "아키텍처 드라이버"·"배포(Render)" 절은 **옛 구조 기록**이다. 지금 구조와 전환 경위는
+> [docs/plans/2026-09-overhaul.md](docs/plans/2026-09-overhaul.md), 반복 확인 절차는
+> [docs/smoke-test.md](docs/smoke-test.md)를 본다. 문서 전체 정리는 나중에 한 번에 한다.
+
+- 백엔드: Supabase(Postgres + Edge Functions), `https://web-claude-t.onrender.com` 은 롤백
+  창(전환 후 1주)이 끝나면 없앤다
 - 프론트엔드: https://hackman-sju.vercel.app/
 
-Django REST Framework + React(Vite) 기반 해커톤/공모전 운영 플랫폼입니다. 대회 생성 →
+React(Vite) + Supabase 기반 해커톤/공모전 운영 플랫폼입니다. 대회 생성 →
 팀 구성 → 제출물 등록 → 심사위원 채점 → 실시간 스코어보드로 이어지는 흐름을 지원합니다.
 우아한형제들 해커톤 운영 사례(예선 15분·결선 10분 실시간 집계)를 참고 모델로 삼았습니다.
-향후 Flutter로 동일 Django REST API를 재사용하는 웹+앱 하이브리드 확장을 계획하고 있습니다.
 
 ## 도메인 모델
 
@@ -49,7 +55,12 @@ Django REST Framework + React(Vite) 기반 해커톤/공모전 운영 플랫폼�
 허용되지 않는 상태에서 요청하면 `403` + `"… (현재 상태: 심사중)"` 형태의 메시지를 돌려준다.
 규칙 정의: `backend/contests/views.py`의 `*_STATUSES`, `frontend/src/rules.ts`.
 
-## 아키텍처 드라이버
+## 아키텍처 드라이버 (옛 구조 — Django+Render 시절 기록)
+
+> Supabase 전환 후에는 이 표의 제약(gunicorn 워커 1개, Render 콜드 스타트, REST 폴링) 자체가
+> 없다. RLS·RPC·Edge Functions·Realtime 으로 무엇을 대체했는지는
+> [docs/plans/2026-09-overhaul.md](docs/plans/2026-09-overhaul.md)의 B·C 단계를 본다. 아래는
+> 왜 그렇게까지 했었는지의 기록으로 남긴다.
 
 파일럿 규모(수십 팀·심사위원 수 명, Render 무료/저가 인스턴스 1개)를 전제로, 구조를 바꾸는
 대신 각 제약의 상한만 올리는 쪽으로 대응했다. 무엇을 포기했는지까지 함께 적는다.
@@ -428,6 +439,13 @@ Render Free 는 15분 미사용 시 잠들고 첫 요청에 30~50초가 걸린�
 
 도메인별로 지금 동작하는 기능만 정리한다. 구현 경위·버그 수정 이력·리뷰 기록은 git 로그로
 충분해 여기서는 뺐다.
+
+**Supabase 전환 (2026-09-17)**
+Django+Render 를 Supabase 네이티브(Postgres RLS/RPC + Edge Functions)로 교체하고 데이터를
+이전했다. 경위·검증 결과는 [docs/plans/2026-09-overhaul.md](docs/plans/2026-09-overhaul.md).
+곁들여 고친 것: 로그인 화면과 대회 목록 분리(기본 화면은 목록, 로그인은 헤더 버튼으로만 열림),
+아이디 로그인 허용(아이디→이메일 조회는 서버 안에서만), 데모 링크가 GitHub 저장소·localhost·
+사설 IP 면 흰 화면 대신 안내 표시.
 
 **인증·권한**
 JWT 로그인/회원가입, 액세스 토큰 만료 시 자동 재발급(실패하면 재로그인 안내). 역할은
