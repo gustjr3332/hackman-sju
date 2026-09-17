@@ -74,6 +74,19 @@ export function SubmissionReviewPanel({
   );
 }
 
+// github.com 저장소 페이지는 항상 프레임 삽입을 거부한다(X-Frame-Options). 참가자가 데모
+// 링크에 실행 화면 대신 저장소 주소를 넣는 실수가 흔해서, 이 경우만 미리 걸러 흰 화면 대신
+// 안내를 보여준다. github.com 외의 다른 사이트가 프레임을 막는지는 JS로 미리 알 수 없어
+// (교차 출처라 응답 헤더를 못 읽음) 그런 경우는 여전히 빈 iframe + "새 탭에서 열기"로 대응한다.
+// ponytail: 알려진 호스트 하나만 걸러내는 목록. 다른 사례가 반복되면 늘린다.
+function isFrameBlockedHost(url: string): boolean {
+  try {
+    return new URL(url).hostname.replace(/^www\./, '') === 'github.com';
+  } catch {
+    return false;
+  }
+}
+
 export function DemoPanel({ linkUrl }: { linkUrl: string }) {
   return (
     <div className="demo-panel">
@@ -83,14 +96,21 @@ export function DemoPanel({ linkUrl }: { linkUrl: string }) {
           새 탭에서 열기 ↗
         </a>
       </div>
-      {/* X-Frame-Options로 iframe이 막히는지는 JS로 감지할 수 없어, "새 탭에서 열기"를
-          fallback이 아니라 항상 함께 노출한다 (DEVELOPMENT.md 참고). */}
-      <iframe
-        src={linkUrl}
-        title="제출물 데모"
-        className="demo-frame"
-        sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-popups-to-escape-sandbox"
-      />
+      {isFrameBlockedHost(linkUrl) ? (
+        <p className="demo-blocked">
+          이 주소는 GitHub 저장소 페이지라 화면 안에 띄울 수 없습니다. 위 "새 탭에서 열기"로
+          확인하세요. (실행 화면 주소가 아니라 코드 주소가 등록된 것일 수 있습니다.)
+        </p>
+      ) : (
+        // X-Frame-Options로 iframe이 막히는지는 JS로 감지할 수 없어, "새 탭에서 열기"를
+        // fallback이 아니라 항상 함께 노출한다 (DEVELOPMENT.md 참고).
+        <iframe
+          src={linkUrl}
+          title="제출물 데모"
+          className="demo-frame"
+          sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-popups-to-escape-sandbox"
+        />
+      )}
     </div>
   );
 }

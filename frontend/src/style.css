@@ -1250,6 +1250,15 @@ body {
   background: var(--surface);
 }
 
+.demo-blocked {
+  margin: 0;
+  padding: 14px;
+  border: 1px solid var(--line);
+  background: var(--paper-raised);
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
 .github-panel-body {
   display: grid;
   grid-template-columns: minmax(160px, 220px) 1fr;
