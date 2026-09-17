@@ -74,20 +74,40 @@ export function SubmissionReviewPanel({
   );
 }
 
-// github.com 저장소 페이지는 항상 프레임 삽입을 거부한다(X-Frame-Options). 참가자가 데모
-// 링크에 실행 화면 대신 저장소 주소를 넣는 실수가 흔해서, 이 경우만 미리 걸러 흰 화면 대신
-// 안내를 보여준다. github.com 외의 다른 사이트가 프레임을 막는지는 JS로 미리 알 수 없어
-// (교차 출처라 응답 헤더를 못 읽음) 그런 경우는 여전히 빈 iframe + "새 탭에서 열기"로 대응한다.
-// ponytail: 알려진 호스트 하나만 걸러내는 목록. 다른 사례가 반복되면 늘린다.
-function isFrameBlockedHost(url: string): boolean {
+// 미리 걸러서 흰 화면 대신 이유를 보여주는 두 가지 경우.
+// - github: 저장소 페이지라 항상 프레임 삽입을 거부한다(X-Frame-Options). 참가자가 데모 링크에
+//   실행 화면 대신 저장소 주소를 넣는 실수가 흔하다.
+// - local: 참가자 본인 컴퓨터에서만 열리는 주소라 다른 사람은 애초에 접속이 안 된다(배포를
+//   못 한 경우 흔함).
+// 이 두 경우 외에 다른 사이트가 프레임을 막는지는 JS로 미리 알 수 없어(교차 출처라 응답
+// 헤더를 못 읽음) 여전히 빈 iframe + "새 탭에서 열기"로 대응한다.
+// ponytail: 알려진 호스트/사설 대역만 걸러내는 목록. 다른 사례가 반복되면 늘린다.
+function demoBlockReason(url: string): 'github' | 'local' | null {
+  let host: string;
   try {
-    return new URL(url).hostname.replace(/^www\./, '') === 'github.com';
+    host = new URL(url).hostname.replace(/^www\./, '');
   } catch {
-    return false;
+    return null;
   }
+  if (host === 'github.com') return 'github';
+  if (host === 'localhost' || host === '127.0.0.1' || host === '0.0.0.0' || host === '::1') return 'local';
+  const ip = host.match(/^(\d{1,3})\.(\d{1,3})\.\d{1,3}\.\d{1,3}$/);
+  if (ip) {
+    const [a, b] = [Number(ip[1]), Number(ip[2])];
+    if (a === 10 || a === 192 && b === 168 || a === 172 && b >= 16 && b <= 31) return 'local';
+  }
+  return null;
 }
 
+const DEMO_BLOCK_MESSAGE = {
+  github: '이 주소는 GitHub 저장소 페이지라 화면 안에 띄울 수 없습니다. 위 "새 탭에서 열기"로 ' +
+    '확인하세요. (실행 화면 주소가 아니라 코드 주소가 등록된 것일 수 있습니다.)',
+  local: '이 주소는 참가자 컴퓨터에서만 열리는 로컬 주소라 다른 사람은 접속할 수 없습니다. ' +
+    'GitHub Pages·Vercel 등 무료 배포 후 그 주소로 다시 등록해 주세요.',
+} as const;
+
 export function DemoPanel({ linkUrl }: { linkUrl: string }) {
+  const blocked = demoBlockReason(linkUrl);
   return (
     <div className="demo-panel">
       <div className="review-panel-head">
@@ -96,11 +116,8 @@ export function DemoPanel({ linkUrl }: { linkUrl: string }) {
           새 탭에서 열기 ↗
         </a>
       </div>
-      {isFrameBlockedHost(linkUrl) ? (
-        <p className="demo-blocked">
-          이 주소는 GitHub 저장소 페이지라 화면 안에 띄울 수 없습니다. 위 "새 탭에서 열기"로
-          확인하세요. (실행 화면 주소가 아니라 코드 주소가 등록된 것일 수 있습니다.)
-        </p>
+      {blocked ? (
+        <p className="demo-blocked">{DEMO_BLOCK_MESSAGE[blocked]}</p>
       ) : (
         // X-Frame-Options로 iframe이 막히는지는 JS로 감지할 수 없어, "새 탭에서 열기"를
         // fallback이 아니라 항상 함께 노출한다 (DEVELOPMENT.md 참고).
