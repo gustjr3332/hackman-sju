@@ -378,9 +378,11 @@ revoke execute on function public.gate_team_insert() from anon, authenticated, p
   `admin`은 `SERVICE_ROLE_KEY`로 만든 클라이언트 — **RLS를 완전히 우회**하므로, "누가 요청했는지"
   판단은 반드시 `caller()`로 따로 해야 한다(admin 클라이언트 자체는 아무나 다 보여준다).
   `login` 함수만 이 래퍼를 안 쓴다(비로그인 상태에서 불러야 하니까).
-- **`llm.ts`** — Anthropic·OpenAI·Google 3사 어댑터. 프롬프트 구성·JSON 파싱은 공용이고,
+- **`llm.ts`** — Anthropic·OpenAI·Google·Groq 4사 어댑터. 프롬프트 구성·JSON 파싱은 공용이고,
   제공사별로 다른 건 "요청을 보내고 텍스트를 받는" 함수 하나뿐이다. `Deno.env.get()`으로 키가
-  있는 제공사만 `availableModels()`에 노출된다 — 지금은 `GOOGLE_API_KEY`만 등록돼 있다.
+  있는 제공사만 `availableModels()`에 노출된다 — 지금은 `GOOGLE_API_KEY`만 등록돼 있다. Groq는
+  무료 티어로 오픈소스 모델(Llama 등)을 OpenAI 호환 `chat/completions` 형식으로 호출한다
+  (`GROQ_API_KEY` 등록 전까지는 선택지에 안 뜬다).
 
 ### 4.2 함수별 요약
 
@@ -419,7 +421,8 @@ revoke execute on function public.gate_team_insert() from anon, authenticated, p
 공용으로 두고 제공사 어댑터만 갈아끼우게 만든 이유는, 나중에 모델을 바꿔 비교할 때 **프롬프트
 차이가 아니라 순수한 모델 차이만** 보고 싶어서다. 이 구조 덕분에 지금 `GOOGLE_API_KEY` 하나로
 전 구간이 돌고 있고, 다른 제공사 키를 등록하면(`supabase secrets set` + `functions deploy`)
-코드 변경 없이 선택지에 추가된다.
+코드 변경 없이 선택지에 추가된다 — Groq(`GROQ_API_KEY`)가 그 예로, 무료 티어로 오픈소스
+모델을 붙일 수 있다.
 
 **점수를 절대 제안하지 않는다** — `analyze-submission`의 프롬프트가 명시적으로 "점수를
 매기거나 제안하지 마라"를 첫 규칙으로 건다(`supabase/functions/analyze-submission/index.ts`).

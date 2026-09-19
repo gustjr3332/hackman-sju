@@ -1,4 +1,4 @@
-// LLM 3사 호출부. backend/contests/llm/base.py 를 옮겼다. SDK 없이 HTTP 로 부른다.
+// LLM 4사 호출부. backend/contests/llm/base.py 를 옮겼다. SDK 없이 HTTP 로 부른다.
 // 제공사별로 다른 것은 요청·응답 모양뿐이고, 프롬프트와 파싱은 호출하는 쪽이 공용으로 갖는다.
 
 export const PROVIDERS: Record<string, { label: string; key: string; defaultModel: string }> = {
@@ -6,6 +6,8 @@ export const PROVIDERS: Record<string, { label: string; key: string; defaultMode
   openai: { label: 'OpenAI', key: 'OPENAI_API_KEY', defaultModel: 'gpt-5.6-luna' },
   // 무료 등급 키는 pro 계열 quota 가 0 이라 flash 를 기본으로 둔다.
   google: { label: 'Google', key: 'GOOGLE_API_KEY', defaultModel: 'gemini-3.5-flash' },
+  // 무료 티어 오픈소스 모델(Llama 등). OpenAI 호환 chat-completions 형식.
+  groq: { label: 'Groq', key: 'GROQ_API_KEY', defaultModel: 'llama-3.3-70b-versatile' },
 };
 
 const keyOf = (p: string) => Deno.env.get(PROVIDERS[p]?.key ?? '') ?? '';
@@ -61,6 +63,12 @@ export async function complete(
       .filter((c: { type: string }) => c.type === 'output_text').map((c: { text?: string }) => c.text ?? '').join('');
     inputTokens = d.usage?.input_tokens ?? 0;
     outputTokens = d.usage?.output_tokens ?? 0;
+  } else if (provider === 'groq') {
+    const d = await post('https://api.groq.com/openai/v1/chat/completions', { Authorization: `Bearer ${key}` },
+      { model, max_tokens: maxTokens, messages: [{ role: 'user', content: prompt }] });
+    text = d.choices?.[0]?.message?.content ?? '';
+    inputTokens = d.usage?.prompt_tokens ?? 0;
+    outputTokens = d.usage?.completion_tokens ?? 0;
   } else {
     const d = await post(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
       { 'x-goog-api-key': key },
