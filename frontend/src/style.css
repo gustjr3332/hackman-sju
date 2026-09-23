@@ -142,6 +142,20 @@ body {
   flex-shrink: 0;
 }
 
+/* 390px 폭에서 브랜드+브레드크럼+아바타+로그아웃이 68px 한 줄에 안 들어가 가로 스크롤이
+   생기던 것 수정. 줄바꿈을 허용하고 역할 라벨(부가 정보)은 좁은 화면에서 생략. */
+@media (max-width: 640px) {
+  .site-header {
+    height: auto;
+    flex-wrap: wrap;
+    padding: 12px 16px;
+  }
+
+  .auth-role {
+    display: none;
+  }
+}
+
 /* 목록 화면 제목 블록 */
 .page-head {
   display: flex;
