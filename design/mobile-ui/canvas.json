@@ -1,0 +1,82 @@
+{
+  "v": 3,
+  "attachments": {},
+  "boards": {
+    "Auth.dc.html": {
+      "h": 844,
+      "is_interactive": true,
+      "title": "로그인",
+      "w": 390,
+      "x": 0,
+      "y": 0
+    },
+    "ContestDetail.dc.html": {
+      "h": 844,
+      "is_interactive": true,
+      "title": "대회 상세",
+      "w": 390,
+      "x": 940,
+      "y": 0
+    },
+    "Gallery.dc.html": {
+      "h": 844,
+      "is_interactive": true,
+      "title": "갤러리",
+      "w": 390,
+      "x": 1880,
+      "y": 0
+    },
+    "Main.dc.html": {
+      "h": 844,
+      "is_interactive": true,
+      "title": "홈",
+      "w": 390,
+      "x": 470,
+      "y": 0
+    },
+    "Profile.dc.html": {
+      "h": 844,
+      "is_interactive": true,
+      "title": "프로필",
+      "w": 390,
+      "x": 2350,
+      "y": 0
+    },
+    "Submission.dc.html": {
+      "h": 844,
+      "is_interactive": true,
+      "title": "제출물 심사",
+      "w": 390,
+      "x": 1410,
+      "y": 0
+    }
+  },
+  "createdOnFiles": {
+    "at": "2026-09-23T00:00:00Z",
+    "v": 1
+  },
+  "designSystems": [],
+  "launch": {
+    "view": "canvas"
+  },
+  "notes": {
+    "title1": {
+      "kind": "title1",
+      "maxW": 2740,
+      "text": "HACKMAN — 모바일 앱 UI 시안",
+      "w": 240,
+      "x": -3,
+      "y": -259
+    }
+  },
+  "order": [
+    "Auth.dc.html",
+    "Main.dc.html",
+    "ContestDetail.dc.html",
+    "Submission.dc.html",
+    "Gallery.dc.html",
+    "Profile.dc.html"
+  ],
+  "pages": [],
+  "title": "HACKMAN 모바일 앱 UI"
+}
