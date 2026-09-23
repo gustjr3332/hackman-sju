@@ -539,7 +539,23 @@ netsh int ipv4 show excludedportrange protocol=tcp
 - **롤백 창 종료 처리 (예정보다 앞당김, 2026-09-19):** `backend/` 디렉터리 제거 완료.
   Render 서비스 삭제 완료(2026-09-23). 남은 것 — Django 테이블 백업 후 drop(데이터 이전
   완전 검증 후 진행 — 아직 미실행).
-- **모바일 앱 UI:** 목업(`design/mobile-ui/`)만 있고 실제 구현은 대기 중.
+- **모바일 대응: 반응형 웹으로 결정 (네이티브 앱 안 감).** 목업(`design/mobile-ui/`)은
+  Auth/Main/ContestDetail/Submission/Gallery/Profile 6화면 완료, 실제 구현은 대기 중.
+  프론트는 순수 React + Vite, CSS 프레임워크나 반응형 대응 없음(`frontend/src/style.css`
+  하나) — 착수 시 세팅 순서:
+  1. `index.html`에 `<meta name="viewport" content="width=device-width, initial-scale=1">`
+     확인 (Vite 템플릿엔 보통 이미 있음, 없으면 추가).
+  2. 브레이크포인트 정의 — 목업이 390px(모바일) 기준이니 `~480px` 모바일 / `481~1024px`
+     태블릿 / `1025px~` 데스크톱 정도로 잡고 `style.css`에 미디어 쿼리 섹션 추가
+     (CSS 프레임워크 새로 안 붙임 — 지금 규모에 Tailwind 등 도입은 과함).
+  3. 목업 6화면의 레이아웃(하단 탭바, safe-area-inset, 카드형 리스트)을 기존 컴포넌트
+     (`ContestDetail.tsx`, `Gallery.tsx`, `SubmissionReview.tsx`, `ProfilePanel.tsx`,
+     `AuthPanel.tsx`)에 반영 — 새 컴포넌트 새로 만들지 않고 기존 것에 반응형 스타일 추가.
+  4. 하단 탭 네비게이션(홈/갤러리/제출현황/프로필)은 현재 프론트에 없는 구조라 `router.ts`
+     기반으로 모바일 폭에서만 노출되는 탭바 레이아웃 추가 필요.
+  5. 실기기 확인은 브라우저 DevTools 반응형 모드로 우선, 최종 점검만 실제 폰에서.
+  6. PWA(홈 화면 추가) 전환은 반응형 다 붙은 뒤 별도 항목으로 — manifest.json +
+     서비스워커 최소 구성, 지금 단계에서 같이 하지 않음.
 - **SMTP:** 지금은 Resend의 테스트 발신 주소(`onboarding@resend.dev`)라 스팸함으로 갈 수
   있다. 사설 도메인이 생기면 발신 주소만 교체.
 - **AI 후보(보류 중):** 참가자 피드백 다이제스트(심사 코멘트 → 참가자 요약, 대회 종료 후
