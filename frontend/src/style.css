@@ -576,6 +576,10 @@ body {
   text-align: left;
   font-size: 0.88rem;
   border-bottom: 1px solid var(--line);
+  /* width:100% 테이블이라 좁은 화면에서 헤더("평균 점수")와 팀/제출물 이름이 글자
+     단위로 줄바꿈되던 것 방지. 감싸는 .table-scroll 이 overflow-x:auto 라 필요하면
+     옆으로 스크롤된다. */
+  white-space: nowrap;
 }
 
 .scoreboard-table th {
