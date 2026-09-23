@@ -10,8 +10,8 @@
 
 - 프로덕션: https://ugrooqkeyhgldrtdriba.supabase.co (Postgres + Edge Functions)
 - 프론트엔드(범위 밖): https://hackman-sju.vercel.app/
-- 2026-09-17까지는 옛 Django 백엔드(Render)가 롤백 창으로 남아 있다. 그 코드(`backend/`)는
-  이 문서에서 다루지 않는다.
+- 옛 Django 백엔드(`backend/`) 코드는 2026-09-19에 저장소에서 제거했다. Render 서비스도
+  2026-09-23에 삭제 완료. Django 테이블 백업/drop만 아직 남아 있다(10장).
 
 ## 목차
 
@@ -536,8 +536,10 @@ netsh int ipv4 show excludedportrange protocol=tcp
 
 ## 10. 남은 일
 
-- **1주 롤백 창 종료 후(2026-09-23 경):** Render 서비스 삭제, Django 테이블 백업 후 drop,
-  `backend/` 디렉터리 제거.
+- **롤백 창 종료 처리 (예정보다 앞당김, 2026-09-19):** `backend/` 디렉터리 제거 완료.
+  Render 서비스 삭제 완료(2026-09-23). 남은 것 — Django 테이블 백업 후 drop(데이터 이전
+  완전 검증 후 진행 — 아직 미실행).
+- **모바일 앱 UI:** 목업(`design/mobile-ui/`)만 있고 실제 구현은 대기 중.
 - **SMTP:** 지금은 Resend의 테스트 발신 주소(`onboarding@resend.dev`)라 스팸함으로 갈 수
   있다. 사설 도메인이 생기면 발신 주소만 교체.
 - **AI 후보(보류 중):** 참가자 피드백 다이제스트(심사 코멘트 → 참가자 요약, 대회 종료 후
