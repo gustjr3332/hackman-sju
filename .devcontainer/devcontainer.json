@@ -17,7 +17,7 @@
     "5432": { "label": "PostgreSQL" }
   },
 
-  "postCreateCommand": "pip install -r backend/requirements.txt && npm install --prefix frontend",
+  "postCreateCommand": "npm install --prefix frontend",
 
   "customizations": {
     "vscode": {

@@ -209,6 +209,16 @@ create trigger judges_guard before delete on public.judges
 심사위원을 지우면 `scores`가 FK CASCADE로 같이 지워져 순위가 조용히 바뀐다. 채점 이력이
 있으면 삭제 자체를 막아 "몰래 순위가 바뀌는" 사고를 원천 차단한다.
 
+**함정 — 연쇄 삭제는 자식 쪽 게이트를 비켜 간다 (2026-09-24 발견·수정,
+`20260924120000_lock_results_after_close.sql`):** 처음엔 팀 삭제에 게이트가 없고 제출물
+게이트에만 기대고 있었다. 그런데 팀을 지우면 FK CASCADE가 제출물을 지우는 시점에는 부모(팀)
+행이 이미 지워져 보이지 않아서, 제출물 게이트가 대회를 못 찾고(`v_status is null`) 통과했다.
+결과적으로 팀원이 종료된 대회의 자기 팀을 지우면 제출물·점수까지 사라졌다. 교훈: **지워질 수
+있는 가장 바깥 행(팀)에 게이트를 건다.** 같은 성질을 거꾸로 이용한 것도 있다 — 운영자가 대회
+자체를 지울 때는 대회 행이 안 보이므로 `ensure_status`와 `guard_judge_delete`가 통과해 연쇄
+삭제가 끝까지 간다(이전엔 점수가 있는 대회를 못 지웠다). 같은 마이그레이션에서 점수 삭제도
+채점과 같은 "심사중" 조건으로 묶었다. 검증은 `supabase/tests/05_lock_after_close.test.sql`.
+
 ### 3.5 Auth 커스터마이징: 가입하면 프로필이 자동으로 생긴다
 
 ```sql
@@ -470,6 +480,16 @@ select throws_ok($$ select public.assign_judge('c1', 'nobody') $$, 'P0002', '...
 reset role;
 ```
 
+테스트는 빈 DB를 가정한다. 로컬 DB에 개발용 데이터(같은 아이디의 사용자 등)가 있으면
+fixture가 겹쳐 실패하는데, `db reset` 대신 각 파일을 트랜잭션 안에서 기존 데이터를 지운 뒤
+돌리고 롤백하면 데이터를 보존한 채 확인할 수 있다:
+
+```bash
+{ echo "begin; delete from public.contests; delete from auth.users;"; \
+  sed -e '/^begin;$/d' -e '/^rollback;$/d' supabase/tests/05_lock_after_close.test.sql; echo "rollback;"; } \
+  | docker exec -i supabase_db_hackman-sju psql -U postgres -X -q -At
+```
+
 PostgREST가 실제로 하는 일(JWT의 `sub`를 `auth.uid()`로 노출하고 세션 역할을 `authenticated`로
 바꾸는 것)을 테스트 안에서 직접 흉내 낸다 — 그래서 이 테스트들이 **RLS 정책까지 실제로
 타면서** 검증한다(그냥 함수만 호출하는 것과 다르다).
@@ -538,7 +558,11 @@ netsh int ipv4 show excludedportrange protocol=tcp
 
 - **롤백 창 종료 처리 (예정보다 앞당김, 2026-09-19):** `backend/` 디렉터리 제거 완료.
   Render 서비스 삭제 완료(2026-09-23). 남은 것 — Django 테이블 백업 후 drop(데이터 이전
-  완전 검증 후 진행 — 아직 미실행).
+  완전 검증 후 진행 — 아직 미실행). 운영 DB의 `auth_user` 등에 옛 계정의 이메일·비밀번호
+  해시가 남아 있어서, 아래 "계정 삭제" 기능과 개인정보처리방침보다 **먼저** 끝내야 한다.
+- **운영 반영 대기 — 종료 후 결과 삭제 막기:** `20260924120000_lock_results_after_close.sql`
+  (팀 삭제는 모집중·진행중만, 점수 삭제는 심사중만, 점수 있는 대회도 운영자가 삭제 가능).
+  로컬 적용·pgTAP 129건 통과. 운영은 커밋 후 사람이 직접 `npx supabase db push`.
 - **모바일 대응: 반응형 웹으로 결정 (네이티브 앱 안 감).** 목업(`design/mobile-ui/`)은
   참고용 스냅샷일 뿐, 실제 앱은 그 목업의 탭 구조(홈/갤러리/제출현황/프로필)를 그대로
   따르지 않는다 — 실앱은 대회 목록→상세→갤러리/제출물의 중첩 구조라 하단 탭바 자체가
@@ -558,6 +582,126 @@ netsh int ipv4 show excludedportrange protocol=tcp
   `overflow-x:auto`로 옆 스크롤되게 수정 (2026-09-23). 대회 목록·로그인·상세·갤러리
   화면 모두 390px에서 가로 스크롤·글자 단위 줄바꿈 없음 확인 완료. 새 CSS
   프레임워크·새 브레이크포인트 체계·PWA는 붙이지 않음(YAGNI).
+  **마무리(2026-09-24):** 목업의 *구조*만 640px 이하에 이식, 색·서체·라운드는 기존
+  토큰 유지. ① 헤더 → 앱 바(안쪽 화면은 뒤로 + 제목, 이름·역할·로그아웃은 아바타를
+  누르면 펼치는 계정 메뉴로, sticky) ② 대회 상세에 섹션 바로가기 탭(스크롤 이동, 앱 바
+  밑에 sticky) ③ "제출물 둘러보기"를 화면 아래 고정 액션 바로 ④ 스코어보드는 제출물
+  열을 팀 이름 아래로 접어 4열 ⑤ 640px 이하·터치 기기에서 버튼 최소 44px ⑥ 스타일
+  없는 입력창까지 16px(iOS 확대 방지) ⑦ `viewport-fit=cover` + safe-area 여백.
+  하단 탭바는 여전히 안 씀(위 이유 그대로). 390px 헤드리스 크롬으로 목록·상세·갤러리·
+  로그인·계정 메뉴 확인: 가로 스크롤 0, 16px 미만 입력창 0, 44px 미만은 테마 토글
+  (규격상 36px)과 문장 속 링크뿐. 1280px에서 데스크톱 레이아웃 변화 없음도 확인.
+- **스토어 배포 준비 (2026-09-24 시작):** 스토어에 올리기로 해서 위의 "PWA는 YAGNI"
+  판단을 뒤집었다. 들어간 것 — `frontend/public/manifest.webmanifest`, 아이콘
+  (`public/icons/`, 헤더 로고 마크를 IBM Plex Mono "H"로 렌더), 서비스 워커
+  (`public/sw.js`: 화면 이동은 네트워크 우선·끊기면 보관본, `/assets/`는 보관본 우선,
+  Supabase 등 다른 출처는 손대지 않음, 새 index.html을 받을 때 옛 번들 정리),
+  `index.html`의 theme-color(직접 고른 테마는 `useTheme.ts`가 덮어씀), 오프라인 안내
+  줄과 재연결 시 목록·상세 자동 새로고침. `vite preview`에서 크롬 설치 가능 판정 오류
+  0건, 오프라인 새로고침·딥링크에서도 앱 화면 뜨는 것 확인. 스토어 제출용 아이콘은
+  `design/store/`(Play 512, App Store 1024). 새 테이블(신고·차단)을 만들면 2026-10-30
+  이후 Supabase가 GRANT를 자동으로 주지 않으므로 마이그레이션에 직접 적는다.
+  남은 일 (정책 기준일 2026-09-24, 제출 직전 링크 재확인):
+  - 먼저 정할 것
+    - [x] 포장 방식 — 두 스토어 모두 출시. 안드로이드는 TWA(Bubblewrap), iOS는 Capacitor +
+      푸시 알림 같은 앱 기능 1개 이상(심사 4.2 "웹사이트 재포장" 거절 대비) (2026-09-24 결정)
+    - [ ] Play 계정 유형 — 개인이면 테스터 12명이 14일 연속 참여해야 출시 가능
+      ([요건](https://support.google.com/googleplay/android-developer/answer/14151465)).
+      조직 계정은 면제지만 D-U-N-S 필요
+    - [x] 탈퇴 시 데이터 처리 — 계정·이메일·프로필 삭제, 팀 참가·제출물·점수는
+      "탈퇴한 사용자"로 익명화 (2026-09-24 결정, 구현 방법은 아래 "권한 검토")
+    - [ ] 도메인·패키지명 — 이번 주 안에 `.com` 도메인으로 바꾸기로 함(확정되면 알려 주기로).
+      assetlinks는 도메인에, 패키지명(안드로이드)·Bundle ID(iOS)는 앱에 영구히 묶이므로
+      둘 다 새 도메인의 역도메인(예: `com.<도메인>.app`)으로 정한다. 확정되면 할 일:
+      `frontend/capacitor.config.ts`의 `appId`와 `ios/App/App.xcodeproj`의
+      `PRODUCT_BUNDLE_IDENTIFIER`(현재 임시값 `com.example.hackman`) 교체, Vercel 도메인 연결,
+      Supabase Auth Site URL 교체, 안드로이드 TWA 생성(아래)
+  - 앱 안에 만들 것 (없으면 두 스토어 모두 거절 사유)
+    - [ ] 계정 삭제: 계정 메뉴 버튼 + 로그인 없이 요청하는 웹 페이지 (반나절~1일,
+      Apple 5.1.1(v), [Play 요건](https://support.google.com/googleplay/android-developer/answer/13327111))
+    - [ ] 개인정보처리방침 페이지 + 앱 안 링크. 처리 위탁·국외 이전(Supabase, Vercel,
+      Resend, LLM 제공사) 포함 (2~3시간, Apple 5.1.1(i))
+    - [ ] 신고·차단·연락처 공개 — 팀 이름·제출물·프로필이 남에게 보이는 콘텐츠라서
+      (약 1일, Apple 1.2)
+    - [ ] 심사용 데모 계정 + 샘플 대회, 운영 환경에 (1시간, Apple 2.1(a))
+    - [ ] Supabase Auth Site URL·Redirect URLs를 운영 도메인으로 (30분)
+    - [ ] 이용약관 페이지 (권장, 1시간)
+  - 안드로이드 (Google Play) — TWA는 웹 주소를 그대로 띄우므로 **도메인 확정 + 새 도메인에
+    PWA 배포**가 끝나야 만들 수 있다. 이 PC에는 JDK·Android SDK가 없다(2026-09-24 확인).
+    - [ ] Play Console 개인 계정: 25달러 1회, 신원 확인, Android 10+ 실기기 인증
+    - [ ] TWA 패키지 생성, targetSdk 36 이상
+      ([요건](https://support.google.com/googleplay/android-developer/answer/11926878)).
+      질문에 답하는 대화형이라 직접 실행: `cd frontend && npx @bubblewrap/cli init
+      --manifest https://<도메인>/manifest.webmanifest --directory android` → 처음 실행 때
+      JDK 17·Android SDK를 받을지 물으면 "예"(`~/.bubblewrap`에 설치). 패키지명은 위 규칙,
+      서명 키 위치는 저장소 밖. 이어서 `npx @bubblewrap/cli build`
+    - [ ] 업로드 키를 저장소 밖에 보관, Play 앱 서명 사용
+    - [ ] `frontend/public/.well-known/assetlinks.json` (없으면 앱 위에 주소창이 보임)
+    - [ ] 등록정보: 짧은 설명 80자, 전체 설명, 그래픽 1024×500, 휴대전화 스크린샷 2장+
+    - [ ] 앱 콘텐츠: 개인정보처리방침 URL, 데이터 보안 양식(계정 삭제 URL), 콘텐츠 등급,
+      타깃 연령, 앱 액세스(데모 계정)
+    - [ ] 비공개 테스트 14일 → 프로덕션 액세스 신청 → 출시 심사
+  - iOS (App Store)
+    - [x] Capacitor 8 iOS 프로젝트 (`frontend/ios/`, Swift Package Manager라 CocoaPods 불필요)
+      — 웹 빌드(dist)를 앱 안에 넣는 방식. 앱 아이콘(1024, 알파 없음)과 실행 화면(라이트·다크,
+      헤더 로고 마크)을 HACKMAN 것으로 교체, `ITSAppUsesNonExemptEncryption=false`(HTTPS만
+      쓰므로 업로드마다 수출 규정 질문을 건너뜀). 웹 쪽 앱 대응: 서비스 워커는 http(s)에서만
+      등록(앱은 `capacitor://`), 비밀번호 재설정 메일 링크는 `VITE_SITE_URL`로 웹 주소에
+      돌아오게 함. (2026-09-24)
+    - [x] 앱 빌드 명령 `npm run ios:sync` (= `vite build --mode ios` + `cap sync ios`).
+      `frontend/.env.ios.local`(커밋 안 됨)에 운영 `VITE_SUPABASE_URL`·`VITE_SUPABASE_ANON_KEY`·
+      `VITE_SITE_URL`을 넣어야 하고, 빠지거나 https가 아니면 빌드가 멈춘다(로컬 Supabase를
+      가리키는 앱이 심사에 올라가는 사고 방지, `vite.config.ts`).
+    - [ ] Apple Developer Program 연 129,000원
+    - [ ] Mac + Xcode 26에서 빌드·서명·업로드 (2026-04-28부터 iOS 26 SDK 필수). 이 PC는
+      Windows라 여기서 못 한다 — Mac을 빌리거나 GitHub Actions macOS 러너로 클라우드 빌드.
+      Mac에서: `cd frontend && npm ci && npm run ios:sync && npx cap open ios` → Xcode에서
+      Signing 팀 선택 → Product › Archive → Distribute
+    - [ ] 앱다운 기능: 푸시 알림(발표 차례·채점 시작) 2~3일 — APNs 키, 기기 토큰 저장 테이블
+      (10/30 이후 GRANT 직접), 발송 Edge Function
+    - [ ] iPad 지원 여부 — 지금 설정은 iPhone·iPad 둘 다(`TARGETED_DEVICE_FAMILY = "1,2"`).
+      유지하면 13인치 iPad 스크린샷도 필요, 빼면 iPhone만
+    - [ ] 도메인 확정 후 Universal Links(메일 링크가 앱에서 열리게) — 선택
+    - [ ] App Store Connect: 개인정보 라벨, 새 연령 등급 설문, 6.9인치 스크린샷, 데모 계정
+  - 가장 빠른 안드로이드 일정: 공통 코드 2~3일 → 비공개 테스트 14일 → 심사 며칠.
+    9/24 시작 기준 빠르면 10월 셋째~넷째 주.
+- **권한 검토 후속 (2026-09-24):** 역할별 권한은 RLS·트리거·RPC가 강제하고 있어 큰 틀은
+  괜찮다. 남은 것:
+  - [ ] **탈퇴 익명화 마이그레이션.** 지금은 `auth.users → profiles → participants·judges →
+    scores`가 전부 CASCADE라, 채점한 심사위원은 계정 삭제가 실패하고(보호 트리거) 참가자는
+    팀 기록에서 지워진다(로컬에서 롤백으로 확인). 고칠 것: `participants.user_id`,
+    `judges.user_id`를 NULL 허용 + `ON DELETE SET NULL`, `team_list`·`judge_list`·`score_list`
+    뷰에 `coalesce(username_of(...), '탈퇴한 사용자')`, 탈퇴 Edge Function(본인 확인 →
+    모집중 대회의 팀 참가는 삭제 → 마지막 운영자면 거절 → `auth.admin.deleteUser`).
+    선행: 위 Django 테이블 drop.
+  - [ ] 개인정보처리방침에 옮길 문장(초안): 탈퇴하면 계정(아이디·이메일·비밀번호)과
+    프로필은 바로 삭제된다. 참가한 대회의 팀 참가 기록·팀 제출물·심사 점수와 코멘트는 대회
+    결과 보존을 위해 남고 작성자는 "탈퇴한 사용자"로 표시된다. 모집 중인 대회의 팀 참가는
+    함께 삭제된다. LLM 제공사에 보낸 자기소개는 제공사 보관 정책을, 백업·접속 기록은 보관
+    기간을 따른다(기간은 요금제 확인 후 숫자로).
+  - [ ] 제출물 insert 시 `submitted_at`을 클라이언트가 정할 수 있음 → 제출 시각순 발표
+    배정에서 앞자리를 받는다. `revoke insert on submissions` 후 필요한 열만 grant.
+  - [ ] 팀 insert 시 `presentation_*` 열 지정 가능("발표 중" 표시 위조). `grant insert
+    (contest_slug, name)`만 남기기.
+  - [ ] `github` 함수를 로그인한 누구나 임의 저장소로 부를 수 있음(서버 토큰 한도 소모).
+    낮음 — 호출 한도나 등록된 저장소만 허용.
+  - [ ] Claude Code 권한 규칙 적용 여부: 지금 전역·프로젝트 모두 allow/deny/ask 0개(auto
+    모드 분류기만). 제안 — `.claude/settings.json`의 deny에 `npx supabase db push`,
+    `link`, `migration repair`, `secrets set`, `functions deploy`, ask에 `git push`,
+    `npx supabase db reset` (PowerShell 형태도 같이).
+  - 앱 안 LLM(Claude 포함 4사)은 DB에 직접 닿지 않는다. 받는 것은 본인 자기소개(프로필 자동
+    정리)와, 운영자가 실행한 경우 제출물 제목·설명·README·코드 파일 최대 30개뿐. 개인정보
+    처리방침의 국외 이전 항목에 이대로 적는다.
+- **디자인 방향 결정 대기 (2026-09-24 조사):** 시가총액 상위 100개 IT기업 홈페이지 99곳을
+  헤드리스 크롬으로 실측해 비교했다. 추천은 **A. 현 토큰 유지 + 서체만 교정**:
+  Space Grotesk·IBM Plex Mono에 한글 글리프가 없어 한글이 OS 서체로 떨어지고, 모노 영역의
+  한글 라벨("평균 점수", "실시간 반영", "10분 예정")이 벌어져 보인다 → UI 서체 Pretendard,
+  모노는 숫자만, 모바일 루트 19→17px, 본문 폭 860→1080px(REFERENCE.md와 맞춤). 반나절~1일.
+  대안 B(목업 시각 언어: 둥근 카드·알약 칩·어두운 카운트다운 카드, 인디고 대신 코발트,
+  2~3일, REFERENCE.md "하지 않는 것" 1·5번 폐기 필요), C(Carbon 계열 콘솔: 각진 모서리,
+  IBM Plex Sans KR, 1.5~2일). 실측 요약: 버튼 모양 각짐 27·알약 23·약간 둥긂 19(71곳),
+  헤드라인 전용 서체 55/90, OS 다크 모드 반응 1/99, 모바일 하단 탭바 7/99.
+  - [ ] A/B/C 중 선택 → REFERENCE.md "타이포그래피" 절부터 고친다.
 - **SMTP:** 지금은 Resend의 테스트 발신 주소(`onboarding@resend.dev`)라 스팸함으로 갈 수
   있다. 사설 도메인이 생기면 발신 주소만 교체.
 - **AI 후보(보류 중):** 참가자 피드백 다이제스트(심사 코멘트 → 참가자 요약, 대회 종료 후
