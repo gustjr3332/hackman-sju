@@ -131,6 +131,12 @@ export function ContestDetail({
   // 운영자가 다른 화면에서 상태를 바꾸면 참가자·심사위원 화면도 바로 따라간다.
   useEffect(() => subscribeContest(contest.slug, refreshLive), [contest.slug, refreshLive]);
 
+  // 연결이 끊긴 사이 놓친 변경은 신호로 오지 않으므로, 다시 붙으면 한 번 새로 받는다.
+  useEffect(() => {
+    window.addEventListener('online', refreshLive);
+    return () => window.removeEventListener('online', refreshLive);
+  }, [refreshLive]);
+
   useEffect(() => {
     if (round === 'final' && !isJudge && !isOrganizer) setRound('preliminary');
   }, [round, isJudge, isOrganizer]);
@@ -163,6 +169,16 @@ export function ContestDetail({
   const visibleRounds = canSeeFinal ? ROUNDS : ROUNDS.filter((r) => r !== 'final');
   const visibleEntries = scoreboard.filter((entry) => entry.round === round);
 
+  // 좁은 화면에서 긴 상세 화면을 오가는 바로가기(design/mobile-ui 시안의 상세 탭). 섹션을
+  // 숨기는 탭이 아니라 스크롤 이동이라, 넓은 화면에서는 CSS 로 숨긴다.
+  const jumps: [string, string][] = [
+    ['sec-scoreboard', '스코어보드'],
+    ['sec-teams', '팀'],
+    ['sec-presentation', '발표'],
+    ...(isJudge ? [['sec-judge', '심사하기'] as [string, string]] : []),
+    ...(isOrganizer ? [['sec-admin', '운영'] as [string, string]] : []),
+  ];
+
   return (
     <section className="contest-detail">
       <button className="back-btn" type="button" onClick={onBack}>
@@ -187,17 +203,28 @@ export function ContestDetail({
           />
         )}
         {contest.description && <p className="contest-description">{contest.description}</p>}
-        <button
-          type="button"
-          className="gallery-link"
-          onClick={() => navigate(paths.gallery(contest.slug))}
-        >
-          제출물 둘러보기
-        </button>
+        {/* 좁은 화면에서는 화면 아래 고정 액션 바가 된다. */}
+        <div className="detail-cta">
+          <button
+            type="button"
+            className="gallery-link"
+            onClick={() => navigate(paths.gallery(contest.slug))}
+          >
+            제출물 둘러보기
+          </button>
+        </div>
         {isOrganizer && <StatusControl contest={contest} onUpdated={onContestUpdated} />}
       </div>
 
-      <div className="scoreboard-hero">
+      <nav className="section-jump" aria-label="이 화면의 섹션">
+        {jumps.map(([id, label]) => (
+          <button key={id} type="button" onClick={() => document.getElementById(id)?.scrollIntoView()}>
+            {label}
+          </button>
+        ))}
+      </nav>
+
+      <div className="scoreboard-hero" id="sec-scoreboard">
         <div className="scoreboard-head">
           <h3 className="section-heading">스코어보드</h3>
           <div className="seg-tabs" role="tablist" aria-label="라운드">
@@ -224,56 +251,60 @@ export function ContestDetail({
         <ScoreboardTable entries={visibleEntries} />
       </div>
 
-      {/* 팀빌딩은 모집중에만 열린다. 혼자 온 사람이 여기서 팀을 찾는 것이 이 묶음의 목적이다. */}
-      {username && canFormTeams(contest.status) && (
-        <>
-          <ProfilePanel onChanged={() => setProfileVersion((v) => v + 1)} />
-          <TeamRecommendations
-            contestSlug={contest.slug}
-            onJoined={refreshLive}
-            profileVersion={profileVersion}
-          />
-          <form className="team-form" onSubmit={handleCreateTeam}>
-            <input
-              type="text"
-              placeholder="새 팀 이름"
-              value={newTeamName}
-              onChange={(e) => setNewTeamName(e.target.value)}
-              required
+      <div className="detail-group" id="sec-teams">
+        {/* 팀빌딩은 모집중에만 열린다. 혼자 온 사람이 여기서 팀을 찾는 것이 이 묶음의 목적이다. */}
+        {username && canFormTeams(contest.status) && (
+          <>
+            <ProfilePanel onChanged={() => setProfileVersion((v) => v + 1)} />
+            <TeamRecommendations
+              contestSlug={contest.slug}
+              onJoined={refreshLive}
+              profileVersion={profileVersion}
             />
-            <button type="submit">팀 만들기</button>
-          </form>
-        </>
-      )}
-      {status && <p className="form-error">{status}</p>}
+            <form className="team-form" onSubmit={handleCreateTeam}>
+              <input
+                type="text"
+                placeholder="새 팀 이름"
+                value={newTeamName}
+                onChange={(e) => setNewTeamName(e.target.value)}
+                required
+              />
+              <button type="submit">팀 만들기</button>
+            </form>
+          </>
+        )}
+        {status && <p className="form-error">{status}</p>}
 
-      <div>
-        <h3 className="section-heading">팀</h3>
-        <div className="team-list">
-          {teams.map((team) => (
-            <TeamCard
-              key={`${team.id}-${team.submission?.id ?? 'none'}`}
-              team={team}
-              username={username}
-              contestStatus={contest.status}
-              onJoin={() => handleJoin(team.id)}
-              onSubmissionSaved={load}
-            />
-          ))}
-          {teams.length === 0 && <p className="empty-hint">아직 등록된 팀이 없습니다.</p>}
+        <div>
+          <h3 className="section-heading">팀</h3>
+          <div className="team-list">
+            {teams.map((team) => (
+              <TeamCard
+                key={`${team.id}-${team.submission?.id ?? 'none'}`}
+                team={team}
+                username={username}
+                contestStatus={contest.status}
+                onJoin={() => handleJoin(team.id)}
+                onSubmissionSaved={load}
+              />
+            ))}
+            {teams.length === 0 && <p className="empty-hint">아직 등록된 팀이 없습니다.</p>}
+          </div>
         </div>
       </div>
 
-      <PresentationSchedule
-        contest={contest}
-        teams={teams}
-        isOrganizer={isOrganizer}
-        // 발표 순서·시작 시각은 /teams/ 응답에만 있어 대회 갱신만으론 안 보인다.
-        onChanged={refreshLive}
-      />
+      <div id="sec-presentation">
+        <PresentationSchedule
+          contest={contest}
+          teams={teams}
+          isOrganizer={isOrganizer}
+          // 발표 순서·시작 시각은 /teams/ 응답에만 있어 대회 갱신만으론 안 보인다.
+          onChanged={refreshLive}
+        />
+      </div>
 
       {isJudge && (
-        <div>
+        <div id="sec-judge">
           <h3 className="section-heading">심사하기</h3>
           {!canScore(contest.status) && (
             <p className="lock-hint">
@@ -291,7 +322,7 @@ export function ContestDetail({
       )}
 
       {isOrganizer && (
-        <div>
+        <div id="sec-admin">
           <h3 className="section-heading">심사 보조 분석</h3>
           <JudgeAssistPanel contestSlug={contest.slug} teams={teams} />
         </div>
@@ -720,6 +751,7 @@ function ScoreForm({ round, submissionId, existing, disabled, onScored }: ScoreF
       </label>
       <input
         type="number"
+        inputMode="decimal"
         min={0}
         max={100}
         step="0.5"
@@ -874,7 +906,7 @@ function ScoreboardTable({ entries }: { entries: ScoreboardEntry[] }) {
           <tr>
             <th className="rank">순위</th>
             <th>팀</th>
-            <th>제출물</th>
+            <th className="sb-sub-col">제출물</th>
             <th className="num">평균 점수</th>
             <th className="num">심사 수</th>
           </tr>
@@ -883,8 +915,12 @@ function ScoreboardTable({ entries }: { entries: ScoreboardEntry[] }) {
           {entries.map((entry) => (
             <tr key={entry.team_id} className={entry.rank === 1 ? 'rank-first' : ''}>
               <td className="rank">{entry.rank ?? '–'}</td>
-              <td>{entry.team_name}</td>
-              <td>{entry.submission_title ?? '–'}</td>
+              <td>
+                {entry.team_name}
+                {/* 좁은 화면에서는 제출물 열을 접고 팀 이름 아래 한 줄로 붙인다. */}
+                {entry.submission_title && <span className="sb-sub">{entry.submission_title}</span>}
+              </td>
+              <td className="sb-sub-col">{entry.submission_title ?? '–'}</td>
               <td className="score">
                 {entry.average_score == null ? '–' : Number(entry.average_score).toFixed(2)}
               </td>

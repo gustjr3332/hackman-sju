@@ -142,9 +142,13 @@ export async function logout() {
   await supabase.auth.signOut();
 }
 
+// 메일 링크가 돌아올 웹 주소. iOS 앱(Capacitor) 안에서는 origin 이 capacitor://localhost 라
+// 메일 링크로 쓸 수 없으므로, 앱 빌드에는 VITE_SITE_URL 로 실제 웹 주소를 넣는다.
+const SITE_URL = import.meta.env.VITE_SITE_URL || window.location.origin;
+
 /** 비밀번호 재설정 메일. 메일의 링크로 돌아오면 onPasswordRecovery 가 불린다. */
 export async function requestPasswordReset(email: string): Promise<void> {
-  const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo: window.location.origin });
+  const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo: SITE_URL });
   if (error) throw new ApiError(error.message);
 }
 

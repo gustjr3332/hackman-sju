@@ -2,14 +2,31 @@
 <html lang="ko">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>HACKMAN · 해커톤/공모전 운영</title>
+    <meta name="description" content="해커톤·공모전의 팀 구성, 심사, 실시간 스코어보드, 시상까지 한 곳에서 운영합니다." />
+    <!-- 설치형 웹앱(PWA). 홈 화면 추가와 스토어 포장(TWA 등)이 이 manifest 를 읽는다. -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-title" content="HACKMAN" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <!-- 상태 표시줄 색 = style.css 의 --paper. 직접 고른 테마가 있으면 아래 스크립트와
+         useTheme.ts 가 두 줄 모두 그 색으로 덮는다. -->
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f3f4f1" />
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#14161a" />
     <script>
       (function () {
         try {
           var stored = localStorage.getItem('hackman-theme');
           if (stored === 'light' || stored === 'dark') {
             document.documentElement.setAttribute('data-theme', stored);
+            var color = stored === 'dark' ? '#14161a' : '#f3f4f1';
+            document.querySelectorAll('meta[name="theme-color"]').forEach(function (m) {
+              m.setAttribute('content', color);
+            });
           }
         } catch (e) {}
       })();

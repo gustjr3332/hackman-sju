@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   AUTH_EXPIRED_EVENT,
   fetchContests,
@@ -34,6 +34,7 @@ export default function App() {
   // "로그인" 버튼을 눌렀을 때만 편다.
   const [showAuth, setShowAuth] = useState(false);
   const [recovering, setRecovering] = useState(false);
+  const [offline, setOffline] = useState(!navigator.onLine);
 
   // 상세 화면은 항상 최신 목록의 대회 객체를 본다 (상태 전이 후에도 동기화 유지).
   const selected = contests.find((c) => c.slug === selectedSlug) ?? null;
@@ -49,6 +50,22 @@ export default function App() {
 
   useEffect(() => {
     loadContests();
+  }, [loadContests]);
+
+  // 폰에서는 지하철·강의실 이동 중에 연결이 자주 끊긴다. 끊기면 알리고, 다시 붙으면 목록을
+  // 새로 받는다(상세 화면은 ContestDetail 이 따로 다시 받는다).
+  useEffect(() => {
+    const goOffline = () => setOffline(true);
+    const goOnline = () => {
+      setOffline(false);
+      loadContests();
+    };
+    window.addEventListener('offline', goOffline);
+    window.addEventListener('online', goOnline);
+    return () => {
+      window.removeEventListener('offline', goOffline);
+      window.removeEventListener('online', goOnline);
+    };
   }, [loadContests]);
 
   // 재설정 메일의 링크로 돌아오면 새 비밀번호를 정하게 한다.
@@ -157,6 +174,18 @@ export default function App() {
     setShowCreateForm(false);
   }
 
+  // 좁은 화면에서는 브레드크럼 대신 "뒤로 + 제목" 앱 바를 쓴다(design/mobile-ui 시안).
+  // 제목은 바로 밑 화면 제목(h2)과 겹치지 않는 쪽을 고른다: 상세는 h2 가 대회 이름이라
+  // "대회 상세", 갤러리·프로젝트는 h2 가 화면 이름이라 어느 대회 안인지를 보여 준다.
+  // 뒤로는 브라우저 이력이 아니라 화면 계층을 따른다 — 공유 링크로 바로 들어와도 갈 곳이 있다.
+  const appBar = !selected
+    ? null
+    : route.name === 'gallery'
+      ? { title: selected.name, back: paths.contest(selected.slug), backLabel: selected.name }
+      : route.name === 'project'
+        ? { title: selected.name, back: paths.gallery(selected.slug), backLabel: '제출물 둘러보기' }
+        : { title: '대회 상세', back: paths.list(), backLabel: '대회 목록' };
+
   const needle = query.trim().toLowerCase();
   const visibleContests = contests.filter(
     (c) =>
@@ -166,8 +195,27 @@ export default function App() {
 
   return (
     <>
-      <header className="site-header">
+      <header className={`site-header${appBar ? ' has-back' : ''}`}>
         <div className="brand">
+          {appBar && (
+            <button
+              type="button"
+              className="app-back"
+              onClick={() => navigate(appBar.back)}
+              aria-label={`${appBar.backLabel}(으)로 돌아가기`}
+            >
+              <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+                <polyline
+                  points="12.5,4 6.5,10 12.5,16"
+                  stroke="currentColor"
+                  strokeWidth="1.6"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </button>
+          )}
+          {appBar && <span className="app-title">{appBar.title}</span>}
           <button
             type="button"
             className="brand-home"
@@ -220,8 +268,17 @@ export default function App() {
               </button>
             </div>
           )}
+          {username && (
+            <AccountMenu username={username} isOrganizer={isOrganizer} onLogout={handleLogout} />
+          )}
         </div>
       </header>
+
+      {offline && (
+        <p className="offline-banner" role="status">
+          오프라인입니다. 연결되면 자동으로 다시 불러옵니다.
+        </p>
+      )}
 
       <main className="main-content">
         {recovering && (
@@ -340,5 +397,60 @@ export default function App() {
         <p id="sync-status">{status}</p>
       </footer>
     </>
+  );
+}
+
+interface AccountMenuProps {
+  username: string;
+  isOrganizer: boolean;
+  onLogout: () => void;
+}
+
+/**
+ * 좁은 화면 전용 계정 메뉴. 헤더 한 줄에 이름·역할·로그아웃까지 넣으면 390px를 넘어서
+ * 아바타 하나만 두고 나머지는 눌렀을 때 펼친다. 넓은 화면에서는 CSS 로 숨고 .auth-status 가 보인다.
+ */
+function AccountMenu({ username, isOrganizer, onLogout }: AccountMenuProps) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  // 메뉴 밖을 누르거나 Esc 를 누르면 닫는다.
+  useEffect(() => {
+    if (!open) return;
+    const onPointer = (e: PointerEvent) => {
+      if (!ref.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false);
+    document.addEventListener('pointerdown', onPointer);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('pointerdown', onPointer);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+
+  return (
+    <div className="account-menu" ref={ref}>
+      <button
+        type="button"
+        className="account-trigger"
+        aria-label="계정 메뉴"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+      >
+        <span className="avatar" aria-hidden="true">
+          {username.slice(0, 1).toUpperCase()}
+        </span>
+      </button>
+      {open && (
+        <div className="account-popover">
+          <span className="auth-name">{username}</span>
+          <span className="auth-role">{isOrganizer ? '운영자' : '참가자'}</span>
+          <button type="button" onClick={onLogout}>
+            로그아웃
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
