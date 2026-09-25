@@ -574,7 +574,7 @@ netsh int ipv4 show excludedportrange protocol=tcp
   Render 서비스 삭제 완료(2026-09-23). 남은 것 — Django 테이블 백업 후 drop(데이터 이전
   완전 검증 후 진행 — 아직 미실행). 운영 DB의 `auth_user` 등에 옛 계정의 이메일·비밀번호
   해시가 남아 있어서, 아래 "계정 삭제" 기능과 개인정보처리방침보다 **먼저** 끝내야 한다.
-- **운영 반영 대기 — 마이그레이션 2개.** 운영은 커밋 후 사람이 직접 `npx supabase db push`.
+- **운영 반영 완료 (2026-09-25, 사용자가 `db push` 실행, `migration list`로 로컬·원격 5개 일치 확인):** 마이그레이션 2개.
   - `20260924120000_lock_results_after_close.sql`: 팀 삭제는 모집중·진행중만, 점수 삭제는
     심사중만, 점수 있는 대회도 운영자가 삭제 가능. 로컬 적용·pgTAP 129건 통과.
   - `20260924130000_explicit_data_api_grants.sql`: Supabase가 2026-10-30부터 public의 새
