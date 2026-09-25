@@ -22,7 +22,7 @@ interface CountdownTimerProps {
   label: string;
 }
 
-/** 초 단위로 갱신되는 잔여 시간 표시. 24시간 넘게 남아도 "H:MM:SS"로 계속 늘어난다. */
+/** 초 단위로 갱신되는 잔여 시간 표시(시간·분·초 타일). 24시간 넘게 남으면 시간 칸이 계속 늘어난다. */
 export function CountdownTimer({ targetIso, expiredLabel, label }: CountdownTimerProps) {
   const [now, setNow] = useState(() => new Date());
 
@@ -38,8 +38,10 @@ export function CountdownTimer({ targetIso, expiredLabel, label }: CountdownTime
     <div className={`countdown-timer${urgent ? ' urgent' : ''}${totalSeconds === 0 ? ' expired' : ''}`}>
       <span className="countdown-label">{totalSeconds === 0 ? expiredLabel : label}</span>
       {totalSeconds > 0 && (
-        <span className="countdown-clock">
-          {hours > 0 ? `${hours}:${pad(minutes)}:${pad(seconds)}` : `${pad(minutes)}:${pad(seconds)}`}
+        <span className="countdown-tiles" role="timer">
+          <span><b>{pad(hours)}</b>시간</span>
+          <span><b>{pad(minutes)}</b>분</span>
+          <span><b>{pad(seconds)}</b>초</span>
         </span>
       )}
     </div>

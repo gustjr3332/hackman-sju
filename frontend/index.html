@@ -10,33 +10,19 @@
     <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png" />
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
     <meta name="apple-mobile-web-app-title" content="HACKMAN" />
-    <meta name="mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-    <!-- 상태 표시줄 색 = style.css 의 --paper. 직접 고른 테마가 있으면 아래 스크립트와
-         useTheme.ts 가 두 줄 모두 그 색으로 덮는다. -->
-    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f3f4f1" />
-    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#14161a" />
+    <!-- 설치형 앱의 상태 표시줄 색 = style.css 의 --paper (시스템 라이트/다크) -->
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f4f5f3" />
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#121316" />
     <script>
       (function () {
         try {
           var stored = localStorage.getItem('hackman-theme');
           if (stored === 'light' || stored === 'dark') {
             document.documentElement.setAttribute('data-theme', stored);
-            var color = stored === 'dark' ? '#14161a' : '#f3f4f1';
-            document.querySelectorAll('meta[name="theme-color"]').forEach(function (m) {
-              m.setAttribute('content', color);
-            });
           }
         } catch (e) {}
       })();
     </script>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap"
-      rel="stylesheet"
-    />
   </head>
   <body>
     <div id="root"></div>

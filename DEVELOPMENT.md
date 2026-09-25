@@ -490,6 +490,20 @@ fixture가 겹쳐 실패하는데, `db reset` 대신 각 파일을 트랜잭션 
   | docker exec -i supabase_db_hackman-sju psql -U postgres -X -q -At
 ```
 
+**새 DB의 API 권한 확인(2026-10-30 Supabase 기본값 변경 대비):** 지금 로컬 DB는 옛 기본값이라
+권한이 빠진 마이그레이션도 통과한다. 새 테이블·뷰를 추가했으면 새 기본값에서 한 번 돌려 본다.
+`supabase/` 폴더(config.toml·migrations·tests)를 임시 폴더에 복사 → config.toml의
+`project_id`를 바꾸고 포트 `543xx`를 `553xx`로 → 맨 앞에 다음 마이그레이션을 하나 넣는다:
+
+```sql
+alter default privileges for role postgres in schema public
+  revoke select, insert, update, delete on tables from anon, authenticated, service_role;
+```
+
+그다음 `npx supabase start --workdir <임시 폴더>` → `npx supabase test db --workdir <임시 폴더>`
+→ 끝나면 `npx supabase stop --no-backup --workdir <임시 폴더>`. 권한을 빠뜨린 테이블이 있으면
+해당 테스트가 `permission denied`로 실패한다.
+
 PostgREST가 실제로 하는 일(JWT의 `sub`를 `auth.uid()`로 노출하고 세션 역할을 `authenticated`로
 바꾸는 것)을 테스트 안에서 직접 흉내 낸다 — 그래서 이 테스트들이 **RLS 정책까지 실제로
 타면서** 검증한다(그냥 함수만 호출하는 것과 다르다).
@@ -560,9 +574,16 @@ netsh int ipv4 show excludedportrange protocol=tcp
   Render 서비스 삭제 완료(2026-09-23). 남은 것 — Django 테이블 백업 후 drop(데이터 이전
   완전 검증 후 진행 — 아직 미실행). 운영 DB의 `auth_user` 등에 옛 계정의 이메일·비밀번호
   해시가 남아 있어서, 아래 "계정 삭제" 기능과 개인정보처리방침보다 **먼저** 끝내야 한다.
-- **운영 반영 대기 — 종료 후 결과 삭제 막기:** `20260924120000_lock_results_after_close.sql`
-  (팀 삭제는 모집중·진행중만, 점수 삭제는 심사중만, 점수 있는 대회도 운영자가 삭제 가능).
-  로컬 적용·pgTAP 129건 통과. 운영은 커밋 후 사람이 직접 `npx supabase db push`.
+- **운영 반영 대기 — 마이그레이션 2개.** 운영은 커밋 후 사람이 직접 `npx supabase db push`.
+  - `20260924120000_lock_results_after_close.sql`: 팀 삭제는 모집중·진행중만, 점수 삭제는
+    심사중만, 점수 있는 대회도 운영자가 삭제 가능. 로컬 적용·pgTAP 129건 통과.
+  - `20260924130000_explicit_data_api_grants.sql`: Supabase가 2026-10-30부터 public의 새
+    테이블·뷰에 API 권한을 자동으로 안 주는 변경 대응(안내 메일, [changelog](https://supabase.com/changelog/45329-breaking-change-tables-not-exposed-to-data-and-graphql-api-automatically)).
+    지금까지 자동으로 붙던 권한에서 schema.sql이 거둬들인 것을 뺀 나머지를 명시한다 — 운영·기존
+    로컬에서는 아무것도 안 바뀌고, DB를 새로 만들 때(db reset·새 프로젝트·프리뷰 브랜치)만 효과가
+    있다. 검증: 새 기본값을 흉내 낸 별도 로컬 스택(아래 7절)에서 이 파일 없이는 API가
+    `permission denied`·pgTAP 실패, 넣으면 129건 통과이고, 테이블·열·함수 권한 목록이 기존 DB와
+    완전히 같음(45·122·26행).
 - **모바일 대응: 반응형 웹으로 결정 (네이티브 앱 안 감).** 목업(`design/mobile-ui/`)은
   참고용 스냅샷일 뿐, 실제 앱은 그 목업의 탭 구조(홈/갤러리/제출현황/프로필)를 그대로
   따르지 않는다 — 실앱은 대회 목록→상세→갤러리/제출물의 중첩 구조라 하단 탭바 자체가
@@ -596,11 +617,12 @@ netsh int ipv4 show excludedportrange protocol=tcp
   (`public/icons/`, 헤더 로고 마크를 IBM Plex Mono "H"로 렌더), 서비스 워커
   (`public/sw.js`: 화면 이동은 네트워크 우선·끊기면 보관본, `/assets/`는 보관본 우선,
   Supabase 등 다른 출처는 손대지 않음, 새 index.html을 받을 때 옛 번들 정리),
-  `index.html`의 theme-color(직접 고른 테마는 `useTheme.ts`가 덮어씀), 오프라인 안내
+  `index.html`의 theme-color(시스템 라이트/다크에 따라 `--paper`), 오프라인 안내
   줄과 재연결 시 목록·상세 자동 새로고침. `vite preview`에서 크롬 설치 가능 판정 오류
   0건, 오프라인 새로고침·딥링크에서도 앱 화면 뜨는 것 확인. 스토어 제출용 아이콘은
   `design/store/`(Play 512, App Store 1024). 새 테이블(신고·차단)을 만들면 2026-10-30
-  이후 Supabase가 GRANT를 자동으로 주지 않으므로 마이그레이션에 직접 적는다.
+  이후 Supabase가 GRANT를 자동으로 주지 않으므로 같은 마이그레이션에 직접 적는다(모양은
+  `20260924130000_explicit_data_api_grants.sql` 참고).
   남은 일 (정책 기준일 2026-09-24, 제출 직전 링크 재확인):
   - 먼저 정할 것
     - [x] 포장 방식 — 두 스토어 모두 출시. 안드로이드는 TWA(Bubblewrap), iOS는 Capacitor +
@@ -645,8 +667,8 @@ netsh int ipv4 show excludedportrange protocol=tcp
     - [x] Capacitor 8 iOS 프로젝트 (`frontend/ios/`, Swift Package Manager라 CocoaPods 불필요)
       — 웹 빌드(dist)를 앱 안에 넣는 방식. 앱 아이콘(1024, 알파 없음)과 실행 화면(라이트·다크,
       헤더 로고 마크)을 HACKMAN 것으로 교체, `ITSAppUsesNonExemptEncryption=false`(HTTPS만
-      쓰므로 업로드마다 수출 규정 질문을 건너뜀). 웹 쪽 앱 대응: 서비스 워커는 http(s)에서만
-      등록(앱은 `capacitor://`), 비밀번호 재설정 메일 링크는 `VITE_SITE_URL`로 웹 주소에
+      쓰므로 업로드마다 수출 규정 질문을 건너뜀). 웹 쪽 앱 대응: 서비스 워커는 앱
+      (`capacitor://`)에서 지원되지 않아 등록이 실패하고 무시됨, 비밀번호 재설정 메일 링크는 `VITE_SITE_URL`로 웹 주소에
       돌아오게 함. (2026-09-24)
     - [x] 앱 빌드 명령 `npm run ios:sync` (= `vite build --mode ios` + `cap sync ios`).
       `frontend/.env.ios.local`(커밋 안 됨)에 운영 `VITE_SUPABASE_URL`·`VITE_SUPABASE_ANON_KEY`·
@@ -692,7 +714,7 @@ netsh int ipv4 show excludedportrange protocol=tcp
   - 앱 안 LLM(Claude 포함 4사)은 DB에 직접 닿지 않는다. 받는 것은 본인 자기소개(프로필 자동
     정리)와, 운영자가 실행한 경우 제출물 제목·설명·README·코드 파일 최대 30개뿐. 개인정보
     처리방침의 국외 이전 항목에 이대로 적는다.
-- **디자인 방향 결정 대기 (2026-09-24 조사):** 시가총액 상위 100개 IT기업 홈페이지 99곳을
+- **디자인 방향 (2026-09-24 조사):** 시가총액 상위 100개 IT기업 홈페이지 99곳을
   헤드리스 크롬으로 실측해 비교했다. 추천은 **A. 현 토큰 유지 + 서체만 교정**:
   Space Grotesk·IBM Plex Mono에 한글 글리프가 없어 한글이 OS 서체로 떨어지고, 모노 영역의
   한글 라벨("평균 점수", "실시간 반영", "10분 예정")이 벌어져 보인다 → UI 서체 Pretendard,
@@ -701,7 +723,19 @@ netsh int ipv4 show excludedportrange protocol=tcp
   2~3일, REFERENCE.md "하지 않는 것" 1·5번 폐기 필요), C(Carbon 계열 콘솔: 각진 모서리,
   IBM Plex Sans KR, 1.5~2일). 실측 요약: 버튼 모양 각짐 27·알약 23·약간 둥긂 19(71곳),
   헤드라인 전용 서체 55/90, OS 다크 모드 반응 1/99, 모바일 하단 탭바 7/99.
-  - [ ] A/B/C 중 선택 → REFERENCE.md "타이포그래피" 절부터 고친다.
+  - [x] **B안 채택, 앱(640px 이하·iOS 앱)에 적용 (2026-09-24).** 규칙은 REFERENCE.md
+    "모바일 시각 규칙 — B안", 구현은 `style.css` 끝 "모바일 B안" 블록. Pretendard(npm, 번들
+    포함, 쓰는 글자 조각만 받음), 토큰 재정의(라이트·다크), 라운드 토큰화(`--r` 컨트롤,
+    `--r-card` 면 — 넓은 화면은 둘 다 6px 그대로), 상태 알약 칩, 진행 중 대회·카운트다운을
+    어두운 히어로 카드 + 시간·분·초 타일(`CountdownTimer`에 타일 마크업 추가, 넓은 화면은
+    숨김), 칩 탭, 섹션 제목 레일 제거, 원형 아바타. theme-color·manifest·iOS 실행 화면 색도
+    B안 바탕으로. 390px 라이트·다크로 목록·상세·갤러리 확인(가로 스크롤 0, Pretendard 적용),
+    1280px은 Space Grotesk·6px 그대로 확인.
+  - [x] **넓은 화면까지 B안 전체 적용 (2026-09-25, 선택지 1~3 중 2번).** 모바일 전용 블록을 없애고
+    토큰(`:root`·다크 2곳)을 B안 값으로 바꾼 뒤, 칩·히어로·원형 아바타 규칙을 기존 규칙 자리에
+    합쳤다(덮어쓰기 층 없음). 모노 서체와 Google Fonts 링크 제거, 카운트다운은 타일 하나로
+    통일(시계 마크업 삭제), 본문 폭 860→1080px(REFERENCE.md와 맞춤). REFERENCE.md 1절을 B안
+    값으로 개정. 1280px·390px × 라이트·다크로 목록·상세·갤러리 확인(가로 스크롤 0).
 - **SMTP:** 지금은 Resend의 테스트 발신 주소(`onboarding@resend.dev`)라 스팸함으로 갈 수
   있다. 사설 도메인이 생기면 발신 주소만 교체.
 - **AI 후보(보류 중):** 참가자 피드백 다이제스트(심사 코멘트 → 참가자 요약, 대회 종료 후

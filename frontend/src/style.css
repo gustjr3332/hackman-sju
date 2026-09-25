@@ -1,49 +1,64 @@
+/* 디자인 토큰 — B안(앱 톤), 넓은 화면·앱 공통 (docs/REFERENCE.md 1절, 2026-09-25) */
 :root {
   color-scheme: light;
-  --ink: #14181c;
-  --paper: #f3f4f1;
-  --paper-raised: #fafaf8;
+  --ink: #17181d;
+  --paper: #f4f5f3;
+  --paper-raised: #ffffff;
   --surface: #ffffff;
-  --line: #d8dad4;
-  --live: #2f6f4f;
+  --line: #e3e4e0;
+  --live: #1f7a55;
   --judging: #c4622a;
-  --signal: #1f3a5f;
-  --muted: #6b6f6a;
+  --signal: #2a55c4;
+  --muted: #5f636c;
   --danger: #b3261e;
-  --font-ui: 'Space Grotesk', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  --font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  /* 진행 중 대회·카운트다운의 어두운 히어로 카드 */
+  --hero-bg: #17181d;
+  --hero-ink: #f4f5f3;
+  --hero-muted: #b8bbc2;
+  /* 한 서체. 숫자는 body 의 tabular-nums 로 자릿수만 맞춘다(모노 서체 없음). */
+  --font-ui: 'Pretendard Variable', Pretendard, -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --font-mono: var(--font-ui);
+  /* 모서리: 컨트롤(버튼·입력)과 면(카드·패널). 칩은 999px. */
+  --r: 10px;
+  --r-card: 14px;
 }
 
 /* 시스템이 다크를 선호하고 사용자가 명시적으로 라이트를 고르지 않았을 때 */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme='light']) {
     color-scheme: dark;
-    --ink: #edeeea;
-    --paper: #14161a;
-    --paper-raised: #1b1e22;
-    --surface: #202327;
-    --line: #33373c;
-    --live: #3fa372;
+    --ink: #eeeff1;
+    --paper: #121316;
+    --paper-raised: #1c1d22;
+    --surface: #1c1d22;
+    --line: #2c2e34;
+    --live: #46b886;
     --judging: #e08148;
-    --signal: #6c93c7;
-    --muted: #9aa0a6;
+    --signal: #7b9cf0;
+    --muted: #a3a6ae;
     --danger: #e5645c;
+    --hero-bg: #262830;
+    --hero-ink: #eeeff1;
+    --hero-muted: #a3a6ae;
   }
 }
 
 /* 헤더의 토글로 명시적으로 고른 값이 시스템 설정보다 항상 우선 */
 :root[data-theme='dark'] {
   color-scheme: dark;
-  --ink: #edeeea;
-  --paper: #14161a;
-  --paper-raised: #1b1e22;
-  --surface: #202327;
-  --line: #33373c;
-  --live: #3fa372;
+  --ink: #eeeff1;
+  --paper: #121316;
+  --paper-raised: #1c1d22;
+  --surface: #1c1d22;
+  --line: #2c2e34;
+  --live: #46b886;
   --judging: #e08148;
-  --signal: #6c93c7;
-  --muted: #9aa0a6;
+  --signal: #7b9cf0;
+  --muted: #a3a6ae;
   --danger: #e5645c;
+  --hero-bg: #262830;
+  --hero-ink: #eeeff1;
+  --hero-muted: #a3a6ae;
 }
 
 * {
@@ -67,6 +82,8 @@ body {
   background: var(--paper);
   transition: background-color 0.15s ease, color 0.15s ease;
   color: var(--ink);
+  /* 모노 서체 없이 숫자 자릿수를 맞춘다(스코어보드·시각이 전광판처럼 정렬). */
+  font-variant-numeric: tabular-nums;
   /* index.html 의 viewport-fit=cover 로 화면 끝까지 쓰는 대신, 가로로 눕힌 폰의 노치
      영역에는 내용이 들어가지 않게 한다(세로에서는 0). */
   padding: 0 env(safe-area-inset-right, 0px) 0 env(safe-area-inset-left, 0px);
@@ -199,7 +216,7 @@ body {
     height: 44px;
     padding: 0;
     border: none;
-    border-radius: 6px;
+    border-radius: var(--r);
     background: none;
     color: var(--ink);
     cursor: pointer;
@@ -256,7 +273,7 @@ body {
     padding: 14px;
     background: var(--surface);
     border: 1px solid var(--line);
-    border-radius: 6px;
+    border-radius: var(--r-card);
   }
 
   .account-popover .auth-name {
@@ -268,7 +285,7 @@ body {
     min-height: 44px;
     background: none;
     border: 1px solid var(--line);
-    border-radius: 6px;
+    border-radius: var(--r);
     cursor: pointer;
     font-family: var(--font-ui);
     font-size: 0.85rem;
@@ -308,7 +325,7 @@ body {
   height: 36px;
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: var(--r);
   cursor: pointer;
   color: var(--muted);
 }
@@ -337,13 +354,12 @@ body {
   width: 30px;
   height: 30px;
   flex-shrink: 0;
-  border-radius: 6px;
+  border-radius: 50%;
   background: var(--ink);
   color: var(--paper);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-family: var(--font-mono);
   font-weight: 600;
   font-size: 0.78rem;
 }
@@ -370,7 +386,7 @@ body {
 .auth-status button {
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: var(--r);
   padding: 6px 12px;
   cursor: pointer;
   font-family: var(--font-ui);
@@ -391,7 +407,7 @@ body {
 /* ---------- layout ---------- */
 
 .main-content {
-  max-width: 860px;
+  max-width: 1080px;
   margin: 0 auto;
   padding: 24px 20px 60px;
   display: flex;
@@ -403,6 +419,7 @@ body {
 
 .auth-panel {
   border: 1px solid var(--line);
+  border-radius: var(--r-card);
   padding: 20px;
   display: flex;
   flex-direction: column;
@@ -441,7 +458,7 @@ body {
 .submission-form input,
 .submission-form textarea {
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: var(--r);
   /* 탭 타깃 44px (DESIGN.md "컨트롤 규격") */
   min-height: 44px;
   padding: 10px 12px;
@@ -461,7 +478,7 @@ body {
   background: var(--ink);
   color: var(--paper);
   border: none;
-  border-radius: 6px;
+  border-radius: var(--r);
   min-height: 44px;
   padding: 10px;
   cursor: pointer;
@@ -535,7 +552,7 @@ body {
   height: 44px;
   padding: 0 12px;
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: var(--r);
   background: var(--surface);
   color: var(--ink);
   font: inherit;
@@ -555,8 +572,7 @@ body {
   padding: 16px;
   background: var(--surface);
   border: 1px solid var(--line);
-  border-left: 4px solid var(--line);
-  border-radius: 6px;
+  border-radius: var(--r-card);
   cursor: pointer;
 }
 
@@ -564,13 +580,27 @@ body {
   background: var(--paper-raised);
 }
 
-.contest-card.status-ongoing,
-.contest-card.status-recruiting {
-  border-left-color: var(--live);
+.contest-card .status-badge {
+  align-self: flex-start;
 }
 
-.contest-card.status-judging {
-  border-left-color: var(--judging);
+/* 진행 중 대회는 어두운 히어로 카드 */
+.contest-card.status-ongoing,
+.contest-card.status-ongoing:hover {
+  background: var(--hero-bg);
+  border-color: var(--hero-bg);
+  color: var(--hero-ink);
+}
+
+.contest-card.status-ongoing .contest-card-desc,
+.contest-card.status-ongoing .contest-meta {
+  color: var(--hero-muted);
+  border-top-color: rgba(255, 255, 255, 0.12);
+}
+
+/* 어두운 카드 위에서는 밝은 녹색으로(대비 확보) */
+.contest-card.status-ongoing .status-badge {
+  color: #46b886;
 }
 
 /* 종료: 135° 빗금으로 비활성을 드러낸다. */
@@ -612,18 +642,13 @@ body {
 .status-badge {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  font-size: 0.78rem;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: color-mix(in srgb, currentColor 12%, transparent);
+  font-size: 0.72rem;
+  font-weight: 700;
   color: var(--muted);
   white-space: nowrap;
-}
-
-.status-badge::before {
-  content: '';
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--line);
 }
 
 .status-badge.status-ongoing,
@@ -631,21 +656,8 @@ body {
   color: var(--live);
 }
 
-.status-badge.status-ongoing::before,
-.status-badge.status-recruiting::before {
-  background: var(--live);
-}
-
 .status-badge.status-judging {
   color: var(--judging);
-}
-
-.status-badge.status-judging::before {
-  background: var(--judging);
-}
-
-.status-badge.status-closed {
-  color: var(--muted);
 }
 
 /* ---------- contest detail ---------- */
@@ -683,13 +695,9 @@ body {
 
 .scoreboard-hero {
   border: 1px solid var(--line);
-  background: var(--paper-raised);
+  border-radius: var(--r-card);
+  background: var(--surface);
   padding: 20px 20px 8px;
-}
-
-.scoreboard-hero .section-heading {
-  border-left-color: var(--signal);
-  color: var(--signal);
 }
 
 .scoreboard-table {
@@ -737,8 +745,6 @@ body {
 
 .section-heading {
   margin: 0 0 12px;
-  padding-left: 10px;
-  border-left: 3px solid var(--ink);
   font-size: 0.95rem;
   font-weight: 600;
   line-height: 1.2;
@@ -782,7 +788,7 @@ body {
   background: var(--ink);
   color: var(--paper);
   border: none;
-  border-radius: 6px;
+  border-radius: var(--r);
   padding: 6px 12px;
   cursor: pointer;
   font-size: 0.82rem;
@@ -911,7 +917,7 @@ body {
 .score-form input,
 .score-form textarea {
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: var(--r);
   padding: 8px 10px;
   font-size: 0.9rem;
   font-family: var(--font-ui);
@@ -925,7 +931,7 @@ body {
   background: var(--ink);
   color: var(--paper);
   border: none;
-  border-radius: 6px;
+  border-radius: var(--r);
   padding: 8px;
   cursor: pointer;
   font-size: 0.85rem;
@@ -968,7 +974,7 @@ body {
 .judge-assign-row button {
   background: none;
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: var(--r);
   padding: 4px 10px;
   cursor: pointer;
   font-size: 0.8rem;
@@ -1007,7 +1013,7 @@ body {
   background: var(--ink);
   color: var(--paper);
   border: none;
-  border-radius: 6px;
+  border-radius: var(--r);
   padding: 9px 14px;
   cursor: pointer;
   font-family: var(--font-ui);
@@ -1017,6 +1023,7 @@ body {
 
 .contest-form {
   border: 1px solid var(--line);
+  border-radius: var(--r-card);
   background: var(--paper-raised);
   padding: 20px;
   display: flex;
@@ -1051,7 +1058,7 @@ body {
 .contest-form input,
 .contest-form textarea {
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: var(--r);
   padding: 10px 12px;
   font-size: 0.95rem;
   font-family: var(--font-ui);
@@ -1072,7 +1079,7 @@ body {
 .contest-form button.ghost {
   background: none;
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: var(--r);
   padding: 9px 14px;
   cursor: pointer;
   font-family: var(--font-ui);
@@ -1091,7 +1098,7 @@ body {
   padding: 1px 6px;
   border: 1px solid var(--signal);
   color: var(--signal);
-  border-radius: 6px;
+  border-radius: var(--r);
   font-size: 0.72rem;
   font-weight: 600;
   letter-spacing: 0.02em;
@@ -1133,7 +1140,7 @@ body {
 .status-control button {
   background: var(--paper-raised);
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: var(--r);
   padding: 6px 12px;
   cursor: pointer;
   font-family: var(--font-ui);
@@ -1193,33 +1200,34 @@ body {
   margin: 0;
 }
 
+/* 탭은 칩(활성은 잉크 바탕) */
 .seg-tabs,
 .line-tabs {
   display: inline-flex;
   flex-wrap: wrap;
-  column-gap: 18px;
-  border-bottom: 1px solid var(--line);
+  gap: 8px;
 }
 
 .seg-tabs button,
 .line-tabs button {
+  flex-shrink: 0;
   min-height: 44px;
-  padding: 0 2px;
-  background: none;
-  border: none;
-  border-bottom: 2px solid transparent;
-  margin-bottom: -1px;
+  padding: 0 16px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 999px;
   cursor: pointer;
   font-family: var(--font-ui);
-  font-size: 0.85rem;
+  font-size: 0.8rem;
   color: var(--muted);
   white-space: nowrap;
 }
 
 .seg-tabs button.active,
 .line-tabs button.active {
-  color: var(--ink);
-  border-bottom-color: var(--ink);
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--paper);
 }
 
 .live-indicator {
@@ -1352,7 +1360,7 @@ body {
   min-height: 44px;
   background: none;
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: var(--r);
   padding: 6px 14px;
   cursor: pointer;
   font-family: var(--font-ui);
@@ -1371,6 +1379,7 @@ body {
   margin-top: 12px;
   padding: 14px;
   border: 1px solid var(--line);
+  border-radius: var(--r-card);
   background: var(--paper-raised);
 }
 
@@ -1445,7 +1454,7 @@ body {
   font-size: 0.78rem;
   color: var(--ink);
   word-break: break-all;
-  border-radius: 6px;
+  border-radius: var(--r);
 }
 
 .github-tree button:hover {
@@ -1498,32 +1507,47 @@ body {
 
 /* ---------- countdown timer ---------- */
 
+/* 어두운 히어로 카드 + 시간·분·초 타일 */
 .countdown-timer {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: 420px;
   margin: 4px 0 0;
-  padding: 6px 12px;
-  border: 1px solid var(--live);
-  color: var(--live);
-  font-size: 0.82rem;
+  padding: 14px;
+  border-radius: var(--r-card);
+  background: var(--hero-bg);
+  color: var(--hero-muted);
+  font-size: 0.75rem;
 }
 
-.countdown-timer .countdown-clock {
-  font-family: var(--font-mono);
-  font-size: 1.1rem;
-  font-weight: 600;
+.countdown-tiles {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.countdown-tiles span {
+  padding: 6px 0;
+  border-radius: var(--r);
+  background: rgba(255, 255, 255, 0.08);
+  text-align: center;
+  font-size: 0.68rem;
+}
+
+.countdown-tiles b {
+  display: block;
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--hero-ink);
 }
 
 .countdown-timer.urgent {
-  border-color: var(--danger);
-  color: var(--danger);
   animation: countdown-pulse 1s ease-in-out infinite;
 }
 
-.countdown-timer.expired {
-  border-color: var(--muted);
-  color: var(--muted);
+.countdown-timer.urgent .countdown-tiles b {
+  color: var(--danger);
 }
 
 @keyframes countdown-pulse {
@@ -1597,7 +1621,7 @@ body {
   color: var(--paper);
   font-size: 0.72rem;
   padding: 2px 8px;
-  border-radius: 6px;
+  border-radius: var(--r);
 }
 
 /* 운영자 전용 조작부. 팀이 많으면 한 줄에 다 못 들어가므로 접힌다. */
@@ -1612,7 +1636,7 @@ body {
   border: 1px solid var(--line);
   background: var(--surface);
   color: var(--ink);
-  border-radius: 6px;
+  border-radius: var(--r);
   padding: 5px 9px;
   font: inherit;
   font-size: 0.8rem;
@@ -1650,7 +1674,7 @@ body {
   width: 3.6em;
   padding: 4px 6px;
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: var(--r);
   background: var(--surface);
   color: var(--ink);
   font: inherit;
@@ -1702,7 +1726,7 @@ body {
   background: var(--signal);
   color: var(--paper);
   border: none;
-  border-radius: 6px;
+  border-radius: var(--r);
   padding: 10px 18px;
   font-family: var(--font-ui);
   font-weight: 600;
@@ -1929,7 +1953,7 @@ body {
   background: #f3f4f1;
   color: #14181c;
   border: none;
-  border-radius: 6px;
+  border-radius: var(--r);
   min-height: 48px;
   padding: 12px 28px;
   font-family: var(--font-ui);
@@ -1945,7 +1969,7 @@ body {
   margin-top: 40px;
   padding: 16px;
   border: 1px solid var(--danger);
-  border-radius: 6px;
+  border-radius: var(--r-card);
 }
 
 .danger-zone.open {
@@ -1953,7 +1977,6 @@ body {
 }
 
 .danger-zone .section-heading.danger {
-  border-left-color: var(--danger);
   color: var(--danger);
 }
 
@@ -1987,7 +2010,7 @@ body {
 .danger-form input {
   padding: 10px;
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: var(--r);
   background: var(--surface);
   color: var(--ink);
   font: inherit;
@@ -2002,7 +2025,7 @@ body {
   background: var(--danger);
   color: #fff;
   border: none;
-  border-radius: 6px;
+  border-radius: var(--r);
   padding: 10px 18px;
   font-family: var(--font-ui);
   font-weight: 600;
@@ -2032,7 +2055,7 @@ body {
   border: 1px solid var(--line);
   background: var(--surface);
   color: var(--ink);
-  border-radius: 6px;
+  border-radius: var(--r);
   padding: 8px 14px;
   font: inherit;
   font-size: 0.85rem;
@@ -2043,7 +2066,7 @@ body {
   margin-bottom: 16px;
   padding: 14px;
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: var(--r-card);
   background: var(--paper-raised);
 }
 
@@ -2063,7 +2086,7 @@ body {
   border: 1px solid var(--line);
   background: var(--surface);
   color: var(--muted);
-  border-radius: 6px;
+  border-radius: var(--r);
   padding: 5px 10px;
   font: inherit;
   font-size: 0.8rem;
@@ -2082,7 +2105,7 @@ body {
 .profile-field input {
   padding: 8px;
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: var(--r);
   background: var(--surface);
   color: var(--ink);
   font: inherit;
@@ -2101,7 +2124,7 @@ body {
   background: var(--ink);
   color: var(--paper);
   border: none;
-  border-radius: 6px;
+  border-radius: var(--r);
   padding: 8px 14px;
   font: inherit;
   font-size: 0.85rem;
@@ -2118,7 +2141,7 @@ body {
 .profile-autofill select {
   padding: 7px;
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: var(--r);
   background: var(--surface);
   color: var(--ink);
   font: inherit;
@@ -2127,7 +2150,7 @@ body {
 
 .profile-roles {
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: var(--r);
   padding: 8px 10px;
   margin: 0 0 10px;
   display: flex;
@@ -2163,7 +2186,7 @@ body {
   background: var(--ink);
   color: var(--paper);
   border: none;
-  border-radius: 6px;
+  border-radius: var(--r);
   padding: 9px 18px;
   font: inherit;
   font-weight: 600;
@@ -2215,7 +2238,7 @@ body {
   border: 1px solid var(--line);
   background: var(--surface);
   color: var(--ink);
-  border-radius: 6px;
+  border-radius: var(--r);
   padding: 7px 14px;
   font: inherit;
   font-size: 0.85rem;
@@ -2233,7 +2256,7 @@ body {
   border: 1px solid var(--line);
   background: var(--surface);
   color: var(--ink);
-  border-radius: 6px;
+  border-radius: var(--r);
   padding: 6px 12px;
   font: inherit;
   font-size: 0.8rem;
@@ -2310,7 +2333,7 @@ body {
 .btn-login {
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: var(--r);
   padding: 6px 14px;
   cursor: pointer;
   font-family: var(--font-ui);
@@ -2360,7 +2383,7 @@ button.stack-chip.removable:hover {
   max-height: 260px;
   overflow-y: auto;
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: var(--r);
   background: var(--surface);
   padding: 8px 10px;
 }
@@ -2397,7 +2420,7 @@ button.stack-chip.removable:hover {
   margin-bottom: 14px;
   padding: 10px 12px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--r-card);
   background: var(--paper-raised);
 }
 .analysis-run {
@@ -2566,7 +2589,7 @@ button.crumb:hover {
   min-height: 44px;
   padding: 0 16px;
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: var(--r);
   background: none;
   color: var(--ink);
   cursor: pointer;
@@ -2611,17 +2634,12 @@ button.crumb:hover {
   padding: 16px;
   background: var(--surface);
   border: 1px solid var(--line);
-  border-left: 4px solid var(--line);
-  border-radius: 6px;
+  border-radius: var(--r-card);
   cursor: pointer;
 }
 
 .tile:hover {
   background: var(--paper-raised);
-}
-
-.tile.scored {
-  border-left-color: var(--signal);
 }
 
 .tile.unsubmitted {
